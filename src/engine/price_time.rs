@@ -6,6 +6,8 @@
 use crate::domain::{Order, OrderBookSide, Trade};
 use crate::interfaces::MatchingAlgorithm;
 use rust_decimal::Decimal;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use rust_decimal::prelude::ToPrimitive;
 use std::sync::Arc;
 
 /// Price/Time Priority (FIFO) matching algorithm
@@ -36,8 +38,9 @@ impl MatchingAlgorithm for PriceTimePriority {
         let mut trades = Vec::new();
 
         // SIMD optimization: Pre-check which price levels can cross
+        // Supported on x86_64 (AVX2) and aarch64 (NEON)
         if self.use_simd && incoming_order.price.is_some() {
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             {
                 use crate::simd::price_matcher::SimdPriceMatcher;
 

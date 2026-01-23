@@ -11,7 +11,7 @@
 //!
 //! - **Lock-free concurrent data structures** using atomic operations
 //! - **Pluggable matching algorithms** (Price/Time, Pro-Rata, etc.)
-//! - **SIMD optimizations** for price matching (AVX2 on x86_64)
+//! - **SIMD optimizations** for price matching (AVX2 on x86_64, NEON on aarch64)
 //! - **Event sourcing** for audit trail and compliance
 //! - **Sub-microsecond latency** for order matching
 //!
