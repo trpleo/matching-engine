@@ -1,0 +1,62 @@
+# Rust Formatter Configuration (Stable)
+# https://rust-lang.github.io/rustfmt/
+
+# Edition
+edition = "2021"
+
+# Maximum line width
+max_width = 100
+
+# Hard tabs or spaces
+hard_tabs = false
+tab_spaces = 4
+
+# Newlines
+newline_style = "Unix"
+
+# Use field init shorthand if possible
+use_field_init_shorthand = true
+
+# Use try shorthand
+use_try_shorthand = true
+
+# Force explicit types in let statements
+force_explicit_abi = true
+
+# Reorder imports
+reorder_imports = true
+
+# Match block trailing comma
+match_block_trailing_comma = true
+
+# Remove nested parens
+remove_nested_parens = true
+
+# Use small heuristics
+use_small_heuristics = "Default"
+
+# Merge derives
+merge_derives = true
+
+# ============================================================================
+# Unstable features (require nightly Rust)
+# To use these, install nightly: rustup toolchain install nightly
+# Then format with: cargo +nightly fmt
+# ============================================================================
+
+# Uncomment the line below and use cargo +nightly fmt to enable:
+# unstable_features = true
+
+# When unstable_features = true, you can also enable:
+# imports_granularity = "Crate"
+# group_imports = "StdExternalCrate"
+# wrap_comments = true
+# comment_width = 100
+# format_code_in_doc_comments = true
+# normalize_doc_attributes = true
+# format_macro_bodies = true
+# format_macro_matchers = true
+# reorder_impl_items = true
+# trailing_comma = "Vertical"
+# overflow_delimited_expr = true
+# condense_wildcard_suffixes = true
