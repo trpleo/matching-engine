@@ -5,9 +5,7 @@
 
 use crate::domain::{Order, OrderBookSide, Trade};
 use crate::interfaces::MatchingAlgorithm;
-use rust_decimal::Decimal;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-use rust_decimal::prelude::ToPrimitive;
+use crate::numeric::Quantity;
 use std::sync::Arc;
 
 /// Price/Time Priority (FIFO) matching algorithm
@@ -37,37 +35,13 @@ impl MatchingAlgorithm for PriceTimePriority {
     fn match_order(&self, incoming_order: Arc<Order>, opposite_side: &OrderBookSide) -> Vec<Trade> {
         let mut trades = Vec::new();
 
-        // SIMD optimization: Pre-check which price levels can cross
-        // Supported on x86_64 (AVX2) and aarch64 (NEON)
-        if self.use_simd && incoming_order.price.is_some() {
-            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-            {
-                use crate::simd::price_matcher::SimdPriceMatcher;
-
-                let incoming_price_f64 = incoming_order.price.unwrap().to_f64().unwrap_or(0.0);
-
-                // Collect price levels
-                let price_levels: Vec<f64> = opposite_side
-                    .levels
-                    .iter()
-                    .map(|entry| entry.value().price.to_f64().unwrap_or(0.0))
-                    .collect();
-
-                // SIMD: Find which prices can cross
-                let crossing_indices = SimdPriceMatcher::find_crossing_prices(
-                    incoming_order.side,
-                    incoming_price_f64,
-                    &price_levels,
-                );
-
-                if crossing_indices.is_empty() {
-                    return trades; // No crosses possible
-                }
-            }
-        }
+        // TODO: SIMD optimization will be re-implemented in Phase 4 with FixedDecimal
+        // The old f64-based SIMD code has been removed as part of the architecture refactoring.
+        // The new implementation will use i64-based SIMD operations via SimdMatcher trait.
+        let _ = self.use_simd; // Silence unused warning until Phase 4
 
         // Match orders in FIFO order
-        while incoming_order.get_remaining_quantity() > Decimal::ZERO {
+        while incoming_order.get_remaining_quantity() > Quantity::ZERO {
             // Get best price level
             let best_level = match opposite_side.best_level() {
                 Some(level) => level,
@@ -84,7 +58,7 @@ impl MatchingAlgorithm for PriceTimePriority {
                 let maker_remaining = maker_order.get_remaining_quantity();
                 let taker_remaining = incoming_order.get_remaining_quantity();
 
-                if maker_remaining == Decimal::ZERO {
+                if maker_remaining == Quantity::ZERO {
                     continue; // Skip already filled orders
                 }
 
@@ -107,13 +81,13 @@ impl MatchingAlgorithm for PriceTimePriority {
                     trades.push(trade);
 
                     // If maker still has quantity, put it back
-                    if maker_order.get_remaining_quantity() > Decimal::ZERO {
+                    if maker_order.get_remaining_quantity() > Quantity::ZERO {
                         best_level.orders.push(Arc::clone(&maker_order));
                         break; // Process next incoming order
                     }
                 }
 
-                if incoming_order.get_remaining_quantity() == Decimal::ZERO {
+                if incoming_order.get_remaining_quantity() == Quantity::ZERO {
                     break;
                 }
             }
@@ -123,7 +97,7 @@ impl MatchingAlgorithm for PriceTimePriority {
                 opposite_side.remove_empty_levels();
             }
 
-            if incoming_order.get_remaining_quantity() == Decimal::ZERO {
+            if incoming_order.get_remaining_quantity() == Quantity::ZERO {
                 break;
             }
         }
@@ -144,6 +118,7 @@ impl MatchingAlgorithm for PriceTimePriority {
 mod tests {
     use super::*;
     use crate::domain::{OrderType, Side, TimeInForce};
+    use crate::numeric::Price;
 
     #[test]
     fn test_price_time_fifo_order() {
@@ -156,8 +131,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -166,8 +141,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -180,8 +155,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -202,8 +177,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -215,15 +190,15 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(2),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(2).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
         let trades = algo.match_order(buy.clone(), &side);
 
         assert_eq!(trades.len(), 1);
-        assert_eq!(trades[0].quantity, Decimal::from(1));
-        assert_eq!(buy.get_remaining_quantity(), Decimal::from(1));
+        assert_eq!(trades[0].quantity, Quantity::from_integer(1).unwrap());
+        assert_eq!(buy.get_remaining_quantity(), Quantity::from_integer(1).unwrap());
     }
 }

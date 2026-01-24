@@ -6,9 +6,9 @@
 use crate::domain::order::state::OrderState;
 use crate::domain::{Order, OrderBookSide, OrderBookSnapshot, OrderId, Side};
 use crate::interfaces::{EventHandler, MatchingAlgorithm, OrderEvent};
+use crate::numeric::{Price, Quantity};
 use chrono::Utc;
 use parking_lot::RwLock;
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -79,7 +79,7 @@ impl MatchingEngine {
 
         // Assign sequence number
         let seq = self.sequence_counter.fetch_add(1, Ordering::AcqRel);
-        order.set_sequence_number(seq);
+        order.set_sequence_number(seq as i64);
 
         // Set state to accepted
         order.set_state(OrderState::Accepted);
@@ -110,14 +110,14 @@ impl MatchingEngine {
         let remaining = order.get_remaining_quantity();
         let filled = order.get_filled_quantity();
 
-        if remaining == Decimal::ZERO && filled > Decimal::ZERO {
+        if remaining == Quantity::ZERO && filled > Quantity::ZERO {
             // Fully filled
             events.push(OrderEvent::OrderFilled {
                 order_id: order.id,
                 total_filled: filled,
                 timestamp: Utc::now(),
             });
-        } else if filled > Decimal::ZERO {
+        } else if filled > Quantity::ZERO {
             // Partially filled
             events.push(OrderEvent::OrderPartiallyFilled {
                 order_id: order.id,
@@ -198,17 +198,21 @@ impl MatchingEngine {
     }
 
     /// Get spread
-    pub fn get_spread(&self) -> Option<Decimal> {
+    pub fn get_spread(&self) -> Option<Price> {
         match (self.bids.best_price(), self.asks.best_price()) {
-            (Some(bid), Some(ask)) => Some(ask - bid),
+            (Some(bid), Some(ask)) => ask.checked_sub(bid).ok(),
             _ => None,
         }
     }
 
     /// Get mid price
-    pub fn get_mid_price(&self) -> Option<Decimal> {
+    pub fn get_mid_price(&self) -> Option<Price> {
         match (self.bids.best_price(), self.asks.best_price()) {
-            (Some(bid), Some(ask)) => Some((bid + ask) / Decimal::from(2)),
+            (Some(bid), Some(ask)) => {
+                bid.checked_add(ask)
+                    .ok()
+                    .map(|sum| Price::from_raw(sum.raw_value() / 2))
+            }
             _ => None,
         }
     }
@@ -234,7 +238,7 @@ impl MatchingEngine {
 
     fn validate_order(&self, order: &Order) -> Result<(), String> {
         // Basic validation
-        if order.quantity <= Decimal::ZERO {
+        if !order.quantity.is_positive() {
             return Err("Quantity must be positive".to_string());
         }
 
@@ -244,7 +248,7 @@ impl MatchingEngine {
 
         if order.is_limit_order() {
             if let Some(price) = order.price {
-                if price <= Decimal::ZERO {
+                if !price.is_positive() {
                     return Err("Price must be positive".to_string());
                 }
             }
@@ -284,8 +288,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -297,8 +301,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -328,8 +332,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -350,14 +354,14 @@ mod tests {
         );
 
         // Add multiple orders
-        for i in 0..5 {
+        for i in 0i64..5 {
             let buy = Arc::new(Order::new(
                 format!("user{}", i),
                 "BTC-USD".to_string(),
                 Side::Buy,
                 OrderType::Limit,
-                Some(Decimal::from(50000 - i * 100)),
-                Decimal::from(1),
+                Some(Price::from_integer(50000 - i * 100).unwrap()),
+                Quantity::from_integer(1).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             engine.submit_order(buy);
@@ -367,8 +371,8 @@ mod tests {
                 "BTC-USD".to_string(),
                 Side::Sell,
                 OrderType::Limit,
-                Some(Decimal::from(50100 + i * 100)),
-                Decimal::from(1),
+                Some(Price::from_integer(50100 + i * 100).unwrap()),
+                Quantity::from_integer(1).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             engine.submit_order(sell);

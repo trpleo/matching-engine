@@ -2,8 +2,8 @@
 // Trade Domain Model
 // ============================================================================
 
+use crate::numeric::{NumericResult, Price, Quantity};
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use super::OrderId;
@@ -28,10 +28,10 @@ pub struct Trade {
     pub taker_order_id: OrderId,
 
     /// Execution price
-    pub price: Decimal,
+    pub price: Price,
 
     /// Executed quantity
-    pub quantity: Decimal,
+    pub quantity: Quantity,
 
     /// Trade timestamp
     pub timestamp: DateTime<Utc>,
@@ -42,8 +42,8 @@ impl Trade {
         instrument: String,
         maker_order_id: OrderId,
         taker_order_id: OrderId,
-        price: Decimal,
-        quantity: Decimal,
+        price: Price,
+        quantity: Quantity,
     ) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -56,9 +56,11 @@ impl Trade {
         }
     }
 
-    /// Calculate the notional value of the trade
-    pub fn notional_value(&self) -> Decimal {
-        self.price * self.quantity
+    /// Calculate the notional value of the trade (price * quantity)
+    ///
+    /// Returns a Result because multiplication can overflow.
+    pub fn notional_value(&self) -> NumericResult<Price> {
+        self.price.checked_mul(self.quantity)
     }
 }
 
@@ -72,13 +74,33 @@ mod tests {
             "BTC-USD".to_string(),
             OrderId::new(),
             OrderId::new(),
-            Decimal::from(50000),
-            Decimal::from(1),
+            Price::from_integer(50000).unwrap(),
+            Quantity::from_integer(1).unwrap(),
         );
 
         assert_eq!(trade.instrument, "BTC-USD");
-        assert_eq!(trade.price, Decimal::from(50000));
-        assert_eq!(trade.quantity, Decimal::from(1));
-        assert_eq!(trade.notional_value(), Decimal::from(50000));
+        assert_eq!(trade.price, Price::from_integer(50000).unwrap());
+        assert_eq!(trade.quantity, Quantity::from_integer(1).unwrap());
+        assert_eq!(
+            trade.notional_value().unwrap(),
+            Price::from_integer(50000).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_notional_value_with_fractional() {
+        let trade = Trade::new(
+            "BTC-USD".to_string(),
+            OrderId::new(),
+            OrderId::new(),
+            Price::from_parts(100, 500_000_000).unwrap(), // 100.5
+            Quantity::from_integer(2).unwrap(),
+        );
+
+        // 100.5 * 2 = 201.0
+        assert_eq!(
+            trade.notional_value().unwrap(),
+            Price::from_integer(201).unwrap()
+        );
     }
 }

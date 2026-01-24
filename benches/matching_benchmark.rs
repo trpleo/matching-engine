@@ -9,15 +9,15 @@
 // 4. Order Book Operations - Snapshot and other operations
 //
 // Architecture Notes:
-// - x86_64: Uses AVX2 (256-bit, 4x f64 parallel)
-// - aarch64: Uses NEON (128-bit, 2x f64 parallel)
+// - x86_64: Uses AVX2 (256-bit, 4x i64 parallel)
+// - aarch64: Uses NEON (128-bit, 2x i64 parallel)
 // - Other: Scalar fallback
 // ============================================================================
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use matching_engine::numeric::{Price, Quantity};
 use matching_engine::prelude::*;
-use matching_engine::simd::SimdPriceMatcher;
-use rust_decimal::Decimal;
+use matching_engine::simd::{create_simd_matcher, ScalarMatcher, SimdMatcher};
 use std::sync::Arc;
 
 // ============================================================================
@@ -30,21 +30,22 @@ fn benchmark_simd_price_matcher(c: &mut Criterion) {
 
     // Test with different array sizes to see SIMD benefits
     for num_prices in [10, 100, 1000].iter() {
-        // Generate price array
-        let prices: Vec<f64> = (0..*num_prices)
-            .map(|i| 50000.0 + i as f64 * 10.0)
+        // Generate price array (raw i64 values)
+        let prices: Vec<i64> = (0..*num_prices)
+            .map(|i| Price::from_integer(50000 + i * 10).unwrap().raw_value())
             .collect();
 
         // Test case: buy order that crosses about 25% of prices
-        let buy_price = 50000.0 + (*num_prices as f64 * 10.0 * 0.25);
+        let buy_price = Price::from_integer(50000 + (*num_prices * 10 / 4)).unwrap().raw_value();
 
+        // SIMD matcher
+        let simd_matcher = create_simd_matcher();
         group.bench_with_input(
             BenchmarkId::new("SIMD", num_prices),
             &(&prices, buy_price),
             |b, (prices, buy_price)| {
                 b.iter(|| {
-                    black_box(SimdPriceMatcher::find_crossing_prices(
-                        Side::Buy,
+                    black_box(simd_matcher.find_crossing_buy_prices(
                         *buy_price,
                         prices,
                     ))
@@ -52,15 +53,14 @@ fn benchmark_simd_price_matcher(c: &mut Criterion) {
             },
         );
 
-        // Scalar comparison (only on aarch64 where we expose the scalar function)
-        #[cfg(target_arch = "aarch64")]
+        // Scalar comparison
+        let scalar_matcher = ScalarMatcher;
         group.bench_with_input(
             BenchmarkId::new("Scalar", num_prices),
             &(&prices, buy_price),
             |b, (prices, buy_price)| {
                 b.iter(|| {
-                    black_box(SimdPriceMatcher::scalar_find_crossing(
-                        Side::Buy,
+                    black_box(scalar_matcher.find_crossing_buy_prices(
                         *buy_price,
                         prices,
                     ))
@@ -98,8 +98,8 @@ fn benchmark_price_time_matching(c: &mut Criterion) {
                         "BTC-USD".to_string(),
                         Side::Sell,
                         OrderType::Limit,
-                        Some(Decimal::from(50000 + i)),
-                        Decimal::from(1),
+                        Some(Price::from_integer(50000 + i as i64).unwrap()),
+                        Quantity::from_integer(1).unwrap(),
                         TimeInForce::GoodTillCancel,
                     ));
                     engine.submit_order(sell);
@@ -112,8 +112,8 @@ fn benchmark_price_time_matching(c: &mut Criterion) {
                         "BTC-USD".to_string(),
                         Side::Buy,
                         OrderType::Limit,
-                        Some(Decimal::from(50005)),
-                        Decimal::from(1),
+                        Some(Price::from_integer(50005).unwrap()),
+                        Quantity::from_integer(1).unwrap(),
                         TimeInForce::GoodTillCancel,
                     ));
                     black_box(engine.submit_order(buy));
@@ -146,8 +146,8 @@ fn benchmark_price_time_simd(c: &mut Criterion) {
                         "BTC-USD".to_string(),
                         Side::Sell,
                         OrderType::Limit,
-                        Some(Decimal::from(50000 + i * 10)),
-                        Decimal::from(1),
+                        Some(Price::from_integer(50000 + i * 10).unwrap()),
+                        Quantity::from_integer(1).unwrap(),
                         TimeInForce::GoodTillCancel,
                     ));
                     engine.submit_order(sell);
@@ -160,8 +160,8 @@ fn benchmark_price_time_simd(c: &mut Criterion) {
                         "BTC-USD".to_string(),
                         Side::Buy,
                         OrderType::Limit,
-                        Some(Decimal::from(50050)),
-                        Decimal::from(5),
+                        Some(Price::from_integer(50050).unwrap()),
+                        Quantity::from_integer(5).unwrap(),
                         TimeInForce::GoodTillCancel,
                     ));
                     black_box(engine.submit_order(buy));
@@ -196,8 +196,8 @@ fn benchmark_simd_no_match(c: &mut Criterion) {
                         "BTC-USD".to_string(),
                         Side::Sell,
                         OrderType::Limit,
-                        Some(Decimal::from(60000 + i)), // High prices
-                        Decimal::from(1),
+                        Some(Price::from_integer(60000 + i as i64).unwrap()), // High prices
+                        Quantity::from_integer(1).unwrap(),
                         TimeInForce::GoodTillCancel,
                     ));
                     engine.submit_order(sell);
@@ -210,8 +210,8 @@ fn benchmark_simd_no_match(c: &mut Criterion) {
                         "BTC-USD".to_string(),
                         Side::Buy,
                         OrderType::Limit,
-                        Some(Decimal::from(50000)), // Below all asks
-                        Decimal::from(1),
+                        Some(Price::from_integer(50000).unwrap()), // Below all asks
+                        Quantity::from_integer(1).unwrap(),
                         TimeInForce::GoodTillCancel,
                     ));
                     black_box(engine.submit_order(buy));
@@ -231,7 +231,7 @@ fn benchmark_pro_rata_matching(c: &mut Criterion) {
     c.bench_function("pro_rata_matching", |b| {
         let engine = MatchingEngine::new(
             "BTC-USD".to_string(),
-            Box::new(ProRata::new(Decimal::ZERO, false)),
+            Box::new(ProRata::new(Quantity::ZERO, false)),
             Arc::new(NoOpEventHandler),
         );
 
@@ -242,8 +242,8 @@ fn benchmark_pro_rata_matching(c: &mut Criterion) {
                 "BTC-USD".to_string(),
                 Side::Sell,
                 OrderType::Limit,
-                Some(Decimal::from(50000)),
-                Decimal::from((i % 10) + 1),
+                Some(Price::from_integer(50000).unwrap()),
+                Quantity::from_integer((i % 10) + 1).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             engine.submit_order(sell);
@@ -255,8 +255,8 @@ fn benchmark_pro_rata_matching(c: &mut Criterion) {
                 "BTC-USD".to_string(),
                 Side::Buy,
                 OrderType::Limit,
-                Some(Decimal::from(50000)),
-                Decimal::from(100),
+                Some(Price::from_integer(50000).unwrap()),
+                Quantity::from_integer(100).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             black_box(engine.submit_order(buy));
@@ -277,14 +277,14 @@ fn benchmark_order_book_snapshot(c: &mut Criterion) {
         );
 
         // Pre-populate book with 100 levels on each side
-        for i in 0..100 {
+        for i in 0i64..100 {
             let buy = Arc::new(Order::new(
                 format!("buyer{}", i),
                 "BTC-USD".to_string(),
                 Side::Buy,
                 OrderType::Limit,
-                Some(Decimal::from(49900 - i * 10)),
-                Decimal::from(1),
+                Some(Price::from_integer(49900 - i * 10).unwrap()),
+                Quantity::from_integer(1).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             engine.submit_order(buy);
@@ -294,8 +294,8 @@ fn benchmark_order_book_snapshot(c: &mut Criterion) {
                 "BTC-USD".to_string(),
                 Side::Sell,
                 OrderType::Limit,
-                Some(Decimal::from(50100 + i * 10)),
-                Decimal::from(1),
+                Some(Price::from_integer(50100 + i * 10).unwrap()),
+                Quantity::from_integer(1).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             engine.submit_order(sell);
@@ -322,8 +322,8 @@ fn benchmark_order_submission_no_match(c: &mut Criterion) {
                 "BTC-USD".to_string(),
                 Side::Sell,
                 OrderType::Limit,
-                Some(Decimal::from(50000)),
-                Decimal::from(1),
+                Some(Price::from_integer(50000).unwrap()),
+                Quantity::from_integer(1).unwrap(),
                 TimeInForce::GoodTillCancel,
             ));
             black_box(engine.submit_order(sell));

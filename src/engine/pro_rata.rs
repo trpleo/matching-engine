@@ -5,7 +5,7 @@
 
 use crate::domain::{Order, OrderBookLevel, OrderBookSide, OrderId, Trade};
 use crate::interfaces::MatchingAlgorithm;
-use rust_decimal::Decimal;
+use crate::numeric::Quantity;
 use std::sync::Arc;
 
 /// Pro-Rata matching algorithm
@@ -28,13 +28,13 @@ use std::sync::Arc;
 /// ```
 pub struct ProRata {
     /// Minimum order size to participate in pro-rata allocation
-    pub minimum_quantity: Decimal,
+    pub minimum_quantity: Quantity,
     /// Whether to give FIFO priority to the top order
     pub top_of_book_fifo: bool,
 }
 
 impl ProRata {
-    pub fn new(minimum_quantity: Decimal, top_of_book_fifo: bool) -> Self {
+    pub fn new(minimum_quantity: Quantity, top_of_book_fifo: bool) -> Self {
         Self {
             minimum_quantity,
             top_of_book_fifo,
@@ -45,10 +45,10 @@ impl ProRata {
     fn calculate_allocation(
         &self,
         level: &OrderBookLevel,
-        quantity_to_fill: Decimal,
-    ) -> Vec<(OrderId, Decimal)> {
+        quantity_to_fill: Quantity,
+    ) -> Vec<(OrderId, Quantity)> {
         let mut allocations = Vec::new();
-        let mut eligible_quantity = Decimal::ZERO;
+        let mut eligible_quantity = Quantity::ZERO;
 
         // Collect eligible orders (above minimum size)
         let mut eligible_orders = Vec::new();
@@ -58,7 +58,7 @@ impl ProRata {
         while let Some(order) = level.orders.pop() {
             let remaining = order.get_remaining_quantity();
             if remaining >= self.minimum_quantity {
-                eligible_quantity += remaining;
+                eligible_quantity = eligible_quantity + remaining;
                 eligible_orders.push((order.id, remaining, order));
             } else {
                 // Save ineligible orders to put back later
@@ -71,19 +71,26 @@ impl ProRata {
             level.orders.push(order);
         }
 
-        if eligible_quantity == Decimal::ZERO {
+        if eligible_quantity == Quantity::ZERO {
             return allocations;
         }
 
         // Calculate pro-rata allocations
-        let mut total_allocated = Decimal::ZERO;
+        // Pro-rata: allocation = (order_quantity / eligible_quantity) * quantity_to_fill
+        // Using raw values: allocation = (order_qty_raw * qty_to_fill_raw) / eligible_qty_raw
+        let mut total_allocated = Quantity::ZERO;
+        let eligible_raw = eligible_quantity.raw_value();
+        let fill_raw = quantity_to_fill.raw_value();
 
         for (order_id, order_quantity, order) in eligible_orders.iter() {
-            let allocation = (order_quantity / eligible_quantity) * quantity_to_fill;
-            let allocation = allocation.floor(); // Round down to avoid over-allocation
+            let order_raw = order_quantity.raw_value();
+            // Calculate (order_quantity * quantity_to_fill) / eligible_quantity
+            // Use i128 to avoid overflow during multiplication
+            let allocation_raw = ((order_raw as i128 * fill_raw as i128) / eligible_raw as i128) as i64;
+            let allocation = Quantity::from_raw(allocation_raw);
 
             allocations.push((*order_id, allocation));
-            total_allocated += allocation;
+            total_allocated = total_allocated + allocation;
 
             // Put order back for later use
             level.orders.push(Arc::clone(order));
@@ -91,8 +98,8 @@ impl ProRata {
 
         // Handle remainder with FIFO (allocate to first order)
         let remainder = quantity_to_fill - total_allocated;
-        if remainder > Decimal::ZERO && !allocations.is_empty() {
-            allocations[0].1 += remainder;
+        if remainder > Quantity::ZERO && !allocations.is_empty() {
+            allocations[0].1 = allocations[0].1 + remainder;
         }
 
         allocations
@@ -103,7 +110,7 @@ impl MatchingAlgorithm for ProRata {
     fn match_order(&self, incoming_order: Arc<Order>, opposite_side: &OrderBookSide) -> Vec<Trade> {
         let mut trades = Vec::new();
 
-        while incoming_order.get_remaining_quantity() > Decimal::ZERO {
+        while incoming_order.get_remaining_quantity() > Quantity::ZERO {
             let best_level = match opposite_side.best_level() {
                 Some(level) => level,
                 None => break,
@@ -124,7 +131,7 @@ impl MatchingAlgorithm for ProRata {
 
             // Execute allocations
             for (order_id, allocated_qty) in allocations {
-                if allocated_qty <= Decimal::ZERO {
+                if allocated_qty <= Quantity::ZERO {
                     continue;
                 }
 
@@ -143,7 +150,7 @@ impl MatchingAlgorithm for ProRata {
                 if let Some(maker_order) = found_order {
                     let trade_quantity = allocated_qty.min(maker_order.get_remaining_quantity());
 
-                    if trade_quantity > Decimal::ZERO
+                    if trade_quantity > Quantity::ZERO
                         && maker_order.try_fill(trade_quantity)
                         && incoming_order.try_fill(trade_quantity)
                     {
@@ -159,13 +166,13 @@ impl MatchingAlgorithm for ProRata {
                         trades.push(trade);
 
                         // Put maker order back if not fully filled
-                        if maker_order.get_remaining_quantity() > Decimal::ZERO {
+                        if maker_order.get_remaining_quantity() > Quantity::ZERO {
                             best_level.orders.push(maker_order);
                         }
                     }
                 }
 
-                if incoming_order.get_remaining_quantity() == Decimal::ZERO {
+                if incoming_order.get_remaining_quantity() == Quantity::ZERO {
                     break;
                 }
             }
@@ -193,10 +200,11 @@ impl MatchingAlgorithm for ProRata {
 mod tests {
     use super::*;
     use crate::domain::{OrderType, Side, TimeInForce};
+    use crate::numeric::Price;
 
     #[test]
     fn test_pro_rata_allocation() {
-        let algo = ProRata::new(Decimal::ZERO, false);
+        let algo = ProRata::new(Quantity::ZERO, false);
         let side = OrderBookSide::new(Side::Sell);
 
         // Add two sell orders at same price with different sizes
@@ -205,8 +213,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(10), // 10 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(10).unwrap(), // 10 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -215,8 +223,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(20), // 20 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(20).unwrap(), // 20 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -229,8 +237,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(15),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(15).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -240,13 +248,13 @@ mod tests {
         assert!(!trades.is_empty());
 
         // Total filled should be 15
-        let total_filled: Decimal = trades.iter().map(|t| t.quantity).sum();
-        assert_eq!(total_filled, Decimal::from(15));
+        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        assert_eq!(total_filled, Quantity::from_integer(15).unwrap());
     }
 
     #[test]
     fn test_pro_rata_minimum_quantity() {
-        let algo = ProRata::new(Decimal::from(5), false);
+        let algo = ProRata::new(Quantity::from_integer(5).unwrap(), false);
         let side = OrderBookSide::new(Side::Sell);
 
         // Small order (below minimum)
@@ -255,8 +263,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1), // Below minimum
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(), // Below minimum
             TimeInForce::GoodTillCancel,
         ));
 
@@ -266,8 +274,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(10),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(10).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -279,8 +287,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(5),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(5).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 

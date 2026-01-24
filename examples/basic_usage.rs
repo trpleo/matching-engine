@@ -3,7 +3,7 @@
 // ============================================================================
 
 use matching_engine::prelude::*;
-use rust_decimal::Decimal;
+use matching_engine::numeric::{Price, Quantity};
 use std::sync::Arc;
 
 fn main() {
@@ -20,14 +20,14 @@ fn main() {
 
     // Add sell orders at different prices
     println!("Adding sell orders...");
-    for i in 0..5 {
+    for i in 0i64..5 {
         let sell = Arc::new(Order::new(
             format!("seller_{}", i),
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000 + i * 100)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000 + i * 100).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
         engine.submit_order(sell);
@@ -35,14 +35,14 @@ fn main() {
 
     // Add buy orders
     println!("Adding buy orders...");
-    for i in 0..5 {
+    for i in 0i64..5 {
         let buy = Arc::new(Order::new(
             format!("buyer_{}", i),
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(49900 - i * 100)),
-            Decimal::from(1),
+            Some(Price::from_integer(49900 - i * 100).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
         engine.submit_order(buy);
@@ -72,8 +72,8 @@ fn main() {
         "BTC-USD".to_string(),
         Side::Buy,
         OrderType::Limit,
-        Some(Decimal::from(50200)), // Will cross first 3 ask levels
-        Decimal::from(2),
+        Some(Price::from_integer(50200).unwrap()), // Will cross first 3 ask levels
+        Quantity::from_integer(2).unwrap(),
         TimeInForce::ImmediateOrCancel,
     ));
 

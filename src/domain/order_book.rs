@@ -2,10 +2,10 @@
 // Order Book Domain Model
 // ============================================================================
 
+use crate::numeric::{Price, Quantity};
 use crossbeam::queue::SegQueue;
 use crossbeam_skiplist::SkipMap;
-use rust_decimal::Decimal;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use super::{Order, Side};
@@ -20,50 +20,39 @@ use serde::{Deserialize, Serialize};
 /// Lock-free price level containing orders at a specific price
 #[derive(Debug)]
 pub struct OrderBookLevel {
-    pub price: Decimal,
+    pub price: Price,
     /// Lock-free FIFO queue of orders
     pub orders: SegQueue<Arc<Order>>,
-    /// Atomic total quantity at this price level
-    total_quantity: AtomicU64,
+    /// Atomic total quantity at this price level (stored as raw i64)
+    total_quantity: AtomicI64,
 }
 
 impl OrderBookLevel {
-    pub fn new(price: Decimal) -> Self {
+    pub fn new(price: Price) -> Self {
         Self {
             price,
             orders: SegQueue::new(),
-            total_quantity: AtomicU64::new(0),
+            total_quantity: AtomicI64::new(0),
         }
     }
 
     pub fn add_order(&self, order: Arc<Order>) {
-        let quantity_micros = Self::decimal_to_micros(order.get_remaining_quantity());
-        self.total_quantity
-            .fetch_add(quantity_micros, Ordering::AcqRel);
+        let quantity_raw = order.get_remaining_quantity().raw_value();
+        self.total_quantity.fetch_add(quantity_raw, Ordering::AcqRel);
         self.orders.push(order);
     }
 
-    pub fn get_total_quantity(&self) -> Decimal {
-        let micros = self.total_quantity.load(Ordering::Acquire);
-        Self::micros_to_decimal(micros)
+    pub fn get_total_quantity(&self) -> Quantity {
+        Quantity::from_raw(self.total_quantity.load(Ordering::Acquire))
     }
 
-    pub fn subtract_quantity(&self, quantity: Decimal) {
-        let micros = Self::decimal_to_micros(quantity);
-        self.total_quantity.fetch_sub(micros, Ordering::AcqRel);
+    pub fn subtract_quantity(&self, quantity: Quantity) {
+        self.total_quantity
+            .fetch_sub(quantity.raw_value(), Ordering::AcqRel);
     }
 
     pub fn is_empty(&self) -> bool {
         self.orders.is_empty()
-    }
-
-    fn decimal_to_micros(value: Decimal) -> u64 {
-        use rust_decimal::prelude::ToPrimitive;
-        (value * Decimal::from(1_000_000)).to_u64().unwrap_or(0)
-    }
-
-    fn micros_to_decimal(micros: u64) -> Decimal {
-        Decimal::from(micros) / Decimal::from(1_000_000)
     }
 }
 
@@ -75,7 +64,7 @@ impl OrderBookLevel {
 /// Uses skip list for sorted price levels
 pub struct OrderBookSide {
     /// SkipMap provides lock-free concurrent sorted map
-    /// Key: price as i64 micros for sorting
+    /// Key: price as raw i64 for sorting
     /// Value: Arc to price level
     pub levels: Arc<SkipMap<i64, Arc<OrderBookLevel>>>,
     pub side: Side,
@@ -92,18 +81,18 @@ impl OrderBookSide {
     /// Add an order to the book side
     pub fn add_order(&self, order: Arc<Order>) {
         let price = order.price.expect("Only limit orders can be added to book");
-        let price_micros = self.price_to_key(price);
+        let price_key = price.raw_value();
 
         // Get or insert price level
         let level = self
             .levels
-            .get_or_insert(price_micros, Arc::new(OrderBookLevel::new(price)));
+            .get_or_insert(price_key, Arc::new(OrderBookLevel::new(price)));
 
         level.value().add_order(order);
     }
 
     /// Get the best (top-of-book) price
-    pub fn best_price(&self) -> Option<Decimal> {
+    pub fn best_price(&self) -> Option<Price> {
         match self.side {
             Side::Buy => {
                 // Highest bid (last in sorted order)
@@ -111,11 +100,11 @@ impl OrderBookSide {
                     .iter()
                     .next_back()
                     .map(|entry| entry.value().price)
-            },
+            }
             Side::Sell => {
                 // Lowest ask (first in sorted order)
                 self.levels.iter().next().map(|entry| entry.value().price)
-            },
+            }
         }
     }
 
@@ -151,7 +140,7 @@ impl OrderBookSide {
     }
 
     /// Get depth at N levels
-    pub fn get_depth(&self, num_levels: usize) -> Vec<(Decimal, Decimal)> {
+    pub fn get_depth(&self, num_levels: usize) -> Vec<(Price, Quantity)> {
         let iter: Box<dyn Iterator<Item = _>> = match self.side {
             Side::Buy => Box::new(self.levels.iter().rev()),
             Side::Sell => Box::new(self.levels.iter()),
@@ -163,11 +152,6 @@ impl OrderBookSide {
                 (level.price, level.get_total_quantity())
             })
             .collect()
-    }
-
-    fn price_to_key(&self, price: Decimal) -> i64 {
-        use rust_decimal::prelude::ToPrimitive;
-        (price * Decimal::from(1_000_000)).to_i64().unwrap_or(0)
     }
 }
 
@@ -181,13 +165,13 @@ impl OrderBookSide {
 pub struct OrderBookSnapshot {
     pub instrument: String,
     /// Bid levels (price, quantity)
-    pub bids: Vec<(Decimal, Decimal)>,
+    pub bids: Vec<(Price, Quantity)>,
     /// Ask levels (price, quantity)
-    pub asks: Vec<(Decimal, Decimal)>,
+    pub asks: Vec<(Price, Quantity)>,
     /// Current spread (ask - bid)
-    pub spread: Option<Decimal>,
+    pub spread: Option<Price>,
     /// Mid price
-    pub mid_price: Option<Decimal>,
+    pub mid_price: Option<Price>,
 }
 
 impl OrderBookSnapshot {
@@ -203,16 +187,22 @@ impl OrderBookSnapshot {
 
     pub fn with_depth(
         instrument: String,
-        bids: Vec<(Decimal, Decimal)>,
-        asks: Vec<(Decimal, Decimal)>,
+        bids: Vec<(Price, Quantity)>,
+        asks: Vec<(Price, Quantity)>,
     ) -> Self {
         let spread = match (bids.first(), asks.first()) {
-            (Some((bid, _)), Some((ask, _))) => Some(ask - bid),
+            (Some((bid, _)), Some((ask, _))) => ask.checked_sub(*bid).ok(),
             _ => None,
         };
 
         let mid_price = match (bids.first(), asks.first()) {
-            (Some((bid, _)), Some((ask, _))) => Some((bid + ask) / Decimal::from(2)),
+            (Some((bid, _)), Some((ask, _))) => {
+                // (bid + ask) / 2
+                bid.checked_add(*ask)
+                    .ok()
+                    .and_then(|sum| sum.checked_mul_int(1).ok()) // identity, just to get the value
+                    .map(|sum| Price::from_raw(sum.raw_value() / 2))
+            }
             _ => None,
         };
 
@@ -225,20 +215,24 @@ impl OrderBookSnapshot {
         }
     }
 
-    pub fn best_bid(&self) -> Option<Decimal> {
+    pub fn best_bid(&self) -> Option<Price> {
         self.bids.first().map(|(price, _)| *price)
     }
 
-    pub fn best_ask(&self) -> Option<Decimal> {
+    pub fn best_ask(&self) -> Option<Price> {
         self.asks.first().map(|(price, _)| *price)
     }
 
-    pub fn total_bid_quantity(&self) -> Decimal {
-        self.bids.iter().map(|(_, qty)| qty).sum()
+    pub fn total_bid_quantity(&self) -> Quantity {
+        self.bids
+            .iter()
+            .fold(Quantity::ZERO, |acc, (_, qty)| acc + *qty)
     }
 
-    pub fn total_ask_quantity(&self) -> Decimal {
-        self.asks.iter().map(|(_, qty)| qty).sum()
+    pub fn total_ask_quantity(&self) -> Quantity {
+        self.asks
+            .iter()
+            .fold(Quantity::ZERO, |acc, (_, qty)| acc + *qty)
     }
 }
 
@@ -249,20 +243,20 @@ mod tests {
 
     #[test]
     fn test_order_book_level() {
-        let level = OrderBookLevel::new(Decimal::from(50000));
+        let level = OrderBookLevel::new(Price::from_integer(50000).unwrap());
 
         let order = Arc::new(Order::new(
             "user1".to_string(),
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
         level.add_order(order);
-        assert_eq!(level.get_total_quantity(), Decimal::from(1));
+        assert_eq!(level.get_total_quantity(), Quantity::from_integer(1).unwrap());
         assert!(!level.is_empty());
     }
 
@@ -275,8 +269,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -285,8 +279,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50100)),
-            Decimal::from(1),
+            Some(Price::from_integer(50100).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -294,20 +288,20 @@ mod tests {
         side.add_order(order2);
 
         // Best bid should be highest price
-        assert_eq!(side.best_price(), Some(Decimal::from(50100)));
+        assert_eq!(side.best_price(), Some(Price::from_integer(50100).unwrap()));
     }
 
     #[test]
     fn test_order_book_snapshot() {
         let snapshot = OrderBookSnapshot::with_depth(
             "BTC-USD".to_string(),
-            vec![(Decimal::from(50000), Decimal::from(1))],
-            vec![(Decimal::from(50100), Decimal::from(2))],
+            vec![(Price::from_integer(50000).unwrap(), Quantity::from_integer(1).unwrap())],
+            vec![(Price::from_integer(50100).unwrap(), Quantity::from_integer(2).unwrap())],
         );
 
-        assert_eq!(snapshot.best_bid(), Some(Decimal::from(50000)));
-        assert_eq!(snapshot.best_ask(), Some(Decimal::from(50100)));
-        assert_eq!(snapshot.spread, Some(Decimal::from(100)));
-        assert_eq!(snapshot.mid_price, Some(Decimal::from(50050)));
+        assert_eq!(snapshot.best_bid(), Some(Price::from_integer(50000).unwrap()));
+        assert_eq!(snapshot.best_ask(), Some(Price::from_integer(50100).unwrap()));
+        assert_eq!(snapshot.spread, Some(Price::from_integer(100).unwrap()));
+        assert_eq!(snapshot.mid_price, Some(Price::from_integer(50050).unwrap()));
     }
 }

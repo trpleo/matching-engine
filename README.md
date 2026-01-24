@@ -47,7 +47,7 @@ matching-engine = "0.1.0"
 
 ```rust
 use matching_engine::prelude::*;
-use rust_decimal::Decimal;
+use matching_engine::numeric::{Price, Quantity};
 use std::sync::Arc;
 
 // Create matching engine
@@ -63,8 +63,8 @@ let sell_order = Arc::new(Order::new(
     "BTC-USD".to_string(),
     Side::Sell,
     OrderType::Limit,
-    Some(Decimal::from(50000)),
-    Decimal::from(1),
+    Some(Price::from_integer(50000).unwrap()),
+    Quantity::from_integer(1).unwrap(),
     TimeInForce::GoodTillCancel,
 ));
 
@@ -76,8 +76,8 @@ let buy_order = Arc::new(Order::new(
     "BTC-USD".to_string(),
     Side::Buy,
     OrderType::Limit,
-    Some(Decimal::from(50000)),
-    Decimal::from(1),
+    Some(Price::from_integer(50000).unwrap()),
+    Quantity::from_integer(1).unwrap(),
     TimeInForce::GoodTillCancel,
 ));
 
@@ -110,8 +110,8 @@ Allocates fills proportionally based on order size at each price level.
 
 ```rust
 Box::new(ProRata::new(
-    Decimal::from(10), // Minimum quantity
-    false,              // Top-of-book FIFO
+    Quantity::from_integer(10).unwrap(), // Minimum quantity
+    false,                                // Top-of-book FIFO
 ))
 ```
 
@@ -121,7 +121,7 @@ Hybrid algorithm: first order at each price level gets FIFO priority (filled com
 
 ```rust
 Box::new(ProRataTobFifo::new(
-    Decimal::from(10), // Minimum quantity for pro-rata participation
+    Quantity::from_integer(10).unwrap(), // Minimum quantity for pro-rata participation
 ))
 ```
 
@@ -139,9 +139,9 @@ Designated market makers receive a preferential percentage allocation before rem
 
 ```rust
 Box::new(LmmPriority::new(
-    vec!["mm1".to_string(), "mm2".to_string()], // LMM account IDs
-    Decimal::from_str_exact("0.4").unwrap(),    // 40% LMM allocation
-    Decimal::from(10),                           // Minimum quantity
+    vec!["mm1".to_string(), "mm2".to_string()].into_iter().collect(), // LMM account IDs
+    Quantity::from_parts(0, 400_000_000).unwrap(), // 0.4 = 40% LMM allocation
+    Quantity::from_integer(10).unwrap(),           // Minimum quantity
 ))
 ```
 
@@ -161,8 +161,8 @@ Hybrid algorithm that treats orders differently based on a size threshold: small
 
 ```rust
 Box::new(ThresholdProRata::new(
-    Decimal::from(50),  // Threshold: orders below 50 BTC get FIFO
-    Decimal::from(10),  // Minimum quantity for pro-rata participation
+    Quantity::from_integer(50).unwrap(),  // Threshold: orders below 50 BTC get FIFO
+    Quantity::from_integer(10).unwrap(),  // Minimum quantity for pro-rata participation
 ))
 ```
 
@@ -191,6 +191,20 @@ Benchmarks on Apple M1 (2021):
 | Order matching (SIMD) | 350 ns | 2.8M orders/sec |
 | Pro-rata matching | 1.2 µs | 800K orders/sec |
 | Order book snapshot | 150 ns | 6.6M/sec |
+
+### FixedDecimal Benchmarks on Apple M3 (2023)
+
+After migrating from `rust_decimal::Decimal` to `FixedDecimal<9>` (i64-based arithmetic):
+
+| Operation | Latency |
+|-----------|---------|
+| Order submission (no match) | 210 ns |
+| Price/Time matching (100 orders) | 1.32 µs |
+| Price/Time matching (1000 orders) | 1.32 µs |
+| Price/Time matching (10000 orders) | 1.33 µs |
+| SIMD no-match check | 1.33 µs |
+| Order book snapshot | 469 ns |
+| Pro-rata matching | 1.32 µs |
 
 Run benchmarks:
 

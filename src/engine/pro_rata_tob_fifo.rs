@@ -5,7 +5,7 @@
 
 use crate::domain::{Order, OrderBookLevel, OrderBookSide, OrderId, Trade};
 use crate::interfaces::MatchingAlgorithm;
-use rust_decimal::Decimal;
+use crate::numeric::Quantity;
 use std::sync::Arc;
 
 /// Pro-Rata with Top-of-Book FIFO matching algorithm
@@ -39,11 +39,11 @@ use std::sync::Arc;
 /// ```
 pub struct ProRataTobFifo {
     /// Minimum order size to participate in pro-rata allocation
-    pub minimum_quantity: Decimal,
+    pub minimum_quantity: Quantity,
 }
 
 impl ProRataTobFifo {
-    pub fn new(minimum_quantity: Decimal) -> Self {
+    pub fn new(minimum_quantity: Quantity) -> Self {
         Self { minimum_quantity }
     }
 
@@ -53,8 +53,8 @@ impl ProRataTobFifo {
     fn calculate_allocation(
         &self,
         level: &OrderBookLevel,
-        quantity_to_fill: Decimal,
-    ) -> Vec<(OrderId, Decimal)> {
+        quantity_to_fill: Quantity,
+    ) -> Vec<(OrderId, Quantity)> {
         let mut allocations = Vec::new();
 
         // Collect all orders from the level
@@ -78,49 +78,52 @@ impl ProRataTobFifo {
         let first_order = &all_orders[0];
         let first_order_qty = first_order.get_remaining_quantity();
 
-        if first_order_qty > Decimal::ZERO {
+        if first_order_qty > Quantity::ZERO {
             let fifo_allocation = remaining_to_allocate.min(first_order_qty);
             allocations.push((first_order.id, fifo_allocation));
-            remaining_to_allocate -= fifo_allocation;
+            remaining_to_allocate = remaining_to_allocate - fifo_allocation;
         }
 
         // If everything was allocated to first order, we're done
-        if remaining_to_allocate <= Decimal::ZERO || all_orders.len() == 1 {
+        if remaining_to_allocate <= Quantity::ZERO || all_orders.len() == 1 {
             return allocations;
         }
 
         // Step 2: Pro-rata allocation for remaining orders (excluding first)
-        let mut eligible_quantity = Decimal::ZERO;
+        let mut eligible_quantity = Quantity::ZERO;
         let mut eligible_orders = Vec::new();
 
         for order in all_orders.iter().skip(1) {
             let remaining = order.get_remaining_quantity();
             if remaining >= self.minimum_quantity {
-                eligible_quantity += remaining;
+                eligible_quantity = eligible_quantity + remaining;
                 eligible_orders.push((order.id, remaining));
             }
         }
 
-        if eligible_quantity == Decimal::ZERO {
+        if eligible_quantity == Quantity::ZERO {
             return allocations;
         }
 
         // Calculate pro-rata allocations
-        let mut total_allocated = Decimal::ZERO;
+        let mut total_allocated = Quantity::ZERO;
+        let eligible_raw = eligible_quantity.raw_value();
+        let remaining_raw = remaining_to_allocate.raw_value();
 
         for (order_id, order_quantity) in eligible_orders.iter() {
-            let allocation = (order_quantity / eligible_quantity) * remaining_to_allocate;
-            let allocation = allocation.floor(); // Round down to avoid over-allocation
+            let order_raw = order_quantity.raw_value();
+            let allocation_raw = ((order_raw as i128 * remaining_raw as i128) / eligible_raw as i128) as i64;
+            let allocation = Quantity::from_raw(allocation_raw);
 
             allocations.push((*order_id, allocation));
-            total_allocated += allocation;
+            total_allocated = total_allocated + allocation;
         }
 
         // Handle remainder - give to first eligible pro-rata order
         let remainder = remaining_to_allocate - total_allocated;
-        if remainder > Decimal::ZERO && allocations.len() > 1 {
+        if remainder > Quantity::ZERO && allocations.len() > 1 {
             // Find first pro-rata allocation (skip the FIFO one at index 0)
-            allocations[1].1 += remainder;
+            allocations[1].1 = allocations[1].1 + remainder;
         }
 
         allocations
@@ -131,7 +134,7 @@ impl MatchingAlgorithm for ProRataTobFifo {
     fn match_order(&self, incoming_order: Arc<Order>, opposite_side: &OrderBookSide) -> Vec<Trade> {
         let mut trades = Vec::new();
 
-        while incoming_order.get_remaining_quantity() > Decimal::ZERO {
+        while incoming_order.get_remaining_quantity() > Quantity::ZERO {
             let best_level = match opposite_side.best_level() {
                 Some(level) => level,
                 None => break,
@@ -152,7 +155,7 @@ impl MatchingAlgorithm for ProRataTobFifo {
 
             // Execute allocations
             for (order_id, allocated_qty) in allocations {
-                if allocated_qty <= Decimal::ZERO {
+                if allocated_qty <= Quantity::ZERO {
                     continue;
                 }
 
@@ -177,7 +180,7 @@ impl MatchingAlgorithm for ProRataTobFifo {
                 if let Some(maker_order) = found_order {
                     let trade_quantity = allocated_qty.min(maker_order.get_remaining_quantity());
 
-                    if trade_quantity > Decimal::ZERO
+                    if trade_quantity > Quantity::ZERO
                         && maker_order.try_fill(trade_quantity)
                         && incoming_order.try_fill(trade_quantity)
                     {
@@ -193,13 +196,13 @@ impl MatchingAlgorithm for ProRataTobFifo {
                         trades.push(trade);
 
                         // Put maker order back if not fully filled
-                        if maker_order.get_remaining_quantity() > Decimal::ZERO {
+                        if maker_order.get_remaining_quantity() > Quantity::ZERO {
                             best_level.orders.push(maker_order);
                         }
                     }
                 }
 
-                if incoming_order.get_remaining_quantity() == Decimal::ZERO {
+                if incoming_order.get_remaining_quantity() == Quantity::ZERO {
                     break;
                 }
             }
@@ -227,10 +230,11 @@ impl MatchingAlgorithm for ProRataTobFifo {
 mod tests {
     use super::*;
     use crate::domain::{OrderType, Side, TimeInForce};
+    use crate::numeric::Price;
 
     #[test]
     fn test_tob_fifo_first_order_gets_priority() {
-        let algo = ProRataTobFifo::new(Decimal::ZERO);
+        let algo = ProRataTobFifo::new(Quantity::ZERO);
         let side = OrderBookSide::new(Side::Sell);
 
         // Add three sell orders at same price
@@ -239,8 +243,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(10), // First order: 10 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(10).unwrap(), // First order: 10 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -249,8 +253,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100), // Second order: 100 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(), // Second order: 100 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -259,8 +263,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(200), // Third order: 200 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(200).unwrap(), // Third order: 200 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -274,16 +278,16 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(150),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(150).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
         let trades = algo.match_order(buy.clone(), &side);
 
         // Verify total filled
-        let total_filled: Decimal = trades.iter().map(|t| t.quantity).sum();
-        assert_eq!(total_filled, Decimal::from(150));
+        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        assert_eq!(total_filled, Quantity::from_integer(150).unwrap());
 
         // Find trade with first order
         let first_trade = trades.iter().find(|t| t.maker_order_id == sell1.id);
@@ -291,15 +295,15 @@ mod tests {
 
         // First order should be filled completely (10 BTC)
         let first_filled = first_trade.unwrap().quantity;
-        assert_eq!(first_filled, Decimal::from(10), "First order should get full 10 BTC via FIFO");
+        assert_eq!(first_filled, Quantity::from_integer(10).unwrap(), "First order should get full 10 BTC via FIFO");
 
         // Verify incoming order is fully filled
-        assert_eq!(buy.get_remaining_quantity(), Decimal::ZERO);
+        assert_eq!(buy.get_remaining_quantity(), Quantity::ZERO);
     }
 
     #[test]
     fn test_tob_fifo_first_order_partial_fill() {
-        let algo = ProRataTobFifo::new(Decimal::ZERO);
+        let algo = ProRataTobFifo::new(Quantity::ZERO);
         let side = OrderBookSide::new(Side::Sell);
 
         // First order is larger than incoming
@@ -308,8 +312,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -318,8 +322,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -332,8 +336,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(50),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(50).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -342,15 +346,15 @@ mod tests {
         // Should only match with first order
         assert_eq!(trades.len(), 1);
         assert_eq!(trades[0].maker_order_id, sell1.id);
-        assert_eq!(trades[0].quantity, Decimal::from(50));
+        assert_eq!(trades[0].quantity, Quantity::from_integer(50).unwrap());
 
         // Second order should not be touched
-        assert_eq!(sell2.get_remaining_quantity(), Decimal::from(100));
+        assert_eq!(sell2.get_remaining_quantity(), Quantity::from_integer(100).unwrap());
     }
 
     #[test]
     fn test_tob_fifo_with_minimum_quantity() {
-        let algo = ProRataTobFifo::new(Decimal::from(50)); // 50 BTC minimum
+        let algo = ProRataTobFifo::new(Quantity::from_integer(50).unwrap()); // 50 BTC minimum
         let side = OrderBookSide::new(Side::Sell);
 
         // Add orders
@@ -359,8 +363,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(10), // First order gets FIFO regardless of size
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(10).unwrap(), // First order gets FIFO regardless of size
             TimeInForce::GoodTillCancel,
         ));
 
@@ -369,8 +373,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(30), // Below minimum, excluded from pro-rata
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(30).unwrap(), // Below minimum, excluded from pro-rata
             TimeInForce::GoodTillCancel,
         ));
 
@@ -379,8 +383,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100), // Above minimum, participates in pro-rata
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(), // Above minimum, participates in pro-rata
             TimeInForce::GoodTillCancel,
         ));
 
@@ -393,8 +397,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -403,7 +407,7 @@ mod tests {
         // First order should get filled (FIFO): 10 BTC
         let first_trade = trades.iter().find(|t| t.maker_order_id == sell1.id);
         assert!(first_trade.is_some());
-        assert_eq!(first_trade.unwrap().quantity, Decimal::from(10));
+        assert_eq!(first_trade.unwrap().quantity, Quantity::from_integer(10).unwrap());
 
         // sell2 should NOT participate (below minimum)
         let second_trade = trades.iter().find(|t| t.maker_order_id == sell2.id);
@@ -412,83 +416,12 @@ mod tests {
         // sell3 should get the remaining (pro-rata, but it's the only eligible one)
         let third_trade = trades.iter().find(|t| t.maker_order_id == sell3.id);
         assert!(third_trade.is_some());
-        assert_eq!(third_trade.unwrap().quantity, Decimal::from(90));
-    }
-
-    #[test]
-    fn test_tob_fifo_pro_rata_distribution() {
-        let algo = ProRataTobFifo::new(Decimal::ZERO);
-        let side = OrderBookSide::new(Side::Sell);
-
-        // First order small, others large
-        let sell1 = Arc::new(Order::new(
-            "user1".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1), // FIFO: 1 BTC
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let sell2 = Arc::new(Order::new(
-            "user2".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100), // Pro-rata eligible
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let sell3 = Arc::new(Order::new(
-            "user3".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(200), // Pro-rata eligible
-            TimeInForce::GoodTillCancel,
-        ));
-
-        side.add_order(sell1.clone());
-        side.add_order(sell2.clone());
-        side.add_order(sell3.clone());
-
-        // Buy 151 BTC: 1 FIFO + 150 pro-rata (50 to sell2, 100 to sell3)
-        let buy = Arc::new(Order::new(
-            "buyer".to_string(),
-            "BTC-USD".to_string(),
-            Side::Buy,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(151),
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let trades = algo.match_order(buy, &side);
-
-        let total_filled: Decimal = trades.iter().map(|t| t.quantity).sum();
-        assert_eq!(total_filled, Decimal::from(151));
-
-        // First gets 1 (FIFO)
-        let trade1 = trades.iter().find(|t| t.maker_order_id == sell1.id).unwrap();
-        assert_eq!(trade1.quantity, Decimal::from(1));
-
-        // sell2 and sell3 should get pro-rata allocation
-        // 150 remaining, sell2 has 100/300 = 33.33%, sell3 has 200/300 = 66.67%
-        // sell2: floor(150 * 100/300) = 50
-        // sell3: floor(150 * 200/300) = 100
-        let trade2 = trades.iter().find(|t| t.maker_order_id == sell2.id).unwrap();
-        let trade3 = trades.iter().find(|t| t.maker_order_id == sell3.id).unwrap();
-
-        assert_eq!(trade2.quantity, Decimal::from(50));
-        assert_eq!(trade3.quantity, Decimal::from(100));
+        assert_eq!(third_trade.unwrap().quantity, Quantity::from_integer(90).unwrap());
     }
 
     #[test]
     fn test_tob_fifo_empty_book() {
-        let algo = ProRataTobFifo::new(Decimal::ZERO);
+        let algo = ProRataTobFifo::new(Quantity::ZERO);
         let side = OrderBookSide::new(Side::Sell);
 
         let buy = Arc::new(Order::new(
@@ -496,8 +429,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 

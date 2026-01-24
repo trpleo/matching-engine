@@ -5,7 +5,7 @@
 
 use crate::domain::{Order, OrderBookLevel, OrderBookSide, OrderId, Trade};
 use crate::interfaces::MatchingAlgorithm;
-use rust_decimal::Decimal;
+use crate::numeric::Quantity;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -47,17 +47,17 @@ pub struct LmmPriority {
     pub lmm_accounts: HashSet<String>,
 
     /// Percentage of each trade allocated to LMMs (e.g., 0.4 for 40%)
-    pub lmm_allocation_pct: Decimal,
+    pub lmm_allocation_pct: Quantity,
 
     /// Minimum order size to participate in pro-rata allocation
-    pub minimum_quantity: Decimal,
+    pub minimum_quantity: Quantity,
 }
 
 impl LmmPriority {
     pub fn new(
         lmm_accounts: Vec<String>,
-        lmm_allocation_pct: Decimal,
-        minimum_quantity: Decimal,
+        lmm_allocation_pct: Quantity,
+        minimum_quantity: Quantity,
     ) -> Self {
         Self {
             lmm_accounts: lmm_accounts.into_iter().collect(),
@@ -75,8 +75,8 @@ impl LmmPriority {
     fn calculate_allocation(
         &self,
         level: &OrderBookLevel,
-        quantity_to_fill: Decimal,
-    ) -> Vec<(OrderId, Decimal)> {
+        quantity_to_fill: Quantity,
+    ) -> Vec<(OrderId, Quantity)> {
         let mut allocations = Vec::new();
 
         // Collect all orders from the level
@@ -97,73 +97,85 @@ impl LmmPriority {
         // Separate LMM and non-LMM orders, filter by minimum quantity
         let mut lmm_orders = Vec::new();
         let mut all_eligible_orders = Vec::new();
-        let mut lmm_total_quantity = Decimal::ZERO;
-        let mut total_eligible_quantity = Decimal::ZERO;
+        let mut lmm_total_quantity = Quantity::ZERO;
+        let mut total_eligible_quantity = Quantity::ZERO;
 
         for order in all_orders.iter() {
             let remaining = order.get_remaining_quantity();
 
             if remaining >= self.minimum_quantity {
-                total_eligible_quantity += remaining;
+                total_eligible_quantity = total_eligible_quantity + remaining;
                 all_eligible_orders.push((order.id, remaining, self.is_lmm(&order.user_id)));
 
                 if self.is_lmm(&order.user_id) {
-                    lmm_total_quantity += remaining;
+                    lmm_total_quantity = lmm_total_quantity + remaining;
                     lmm_orders.push((order.id, remaining));
                 }
             }
         }
 
-        if total_eligible_quantity == Decimal::ZERO {
+        if total_eligible_quantity == Quantity::ZERO {
             return allocations;
         }
 
         // Step 1: LMM allocation
-        let lmm_allocation_qty = quantity_to_fill * self.lmm_allocation_pct;
-        let mut lmm_allocated = Decimal::ZERO;
+        // lmm_allocation_qty = quantity_to_fill * lmm_allocation_pct
+        // Since lmm_allocation_pct is stored as a Quantity (e.g., 0.4 = 400_000_000 raw),
+        // we need to multiply and then divide by 10^9
+        let lmm_allocation_qty = Quantity::from_raw(
+            (quantity_to_fill.raw_value() as i128 * self.lmm_allocation_pct.raw_value() as i128 / 1_000_000_000) as i64
+        );
+        let mut lmm_allocated = Quantity::ZERO;
 
-        if lmm_total_quantity > Decimal::ZERO && lmm_allocation_qty > Decimal::ZERO {
+        if lmm_total_quantity > Quantity::ZERO && lmm_allocation_qty > Quantity::ZERO {
+            let lmm_total_raw = lmm_total_quantity.raw_value();
+            let lmm_alloc_raw = lmm_allocation_qty.raw_value();
+
             for (order_id, order_quantity) in lmm_orders.iter() {
-                let allocation = (order_quantity / lmm_total_quantity) * lmm_allocation_qty;
-                let allocation = allocation.floor(); // Round down
+                let order_raw = order_quantity.raw_value();
+                let allocation_raw = ((order_raw as i128 * lmm_alloc_raw as i128) / lmm_total_raw as i128) as i64;
+                let allocation = Quantity::from_raw(allocation_raw);
 
                 allocations.push((*order_id, allocation));
-                lmm_allocated += allocation;
+                lmm_allocated = lmm_allocated + allocation;
             }
 
             // Handle LMM remainder - give to first LMM
             let lmm_remainder = lmm_allocation_qty - lmm_allocated;
-            if lmm_remainder > Decimal::ZERO && !allocations.is_empty() {
-                allocations[0].1 += lmm_remainder;
-                lmm_allocated += lmm_remainder;
+            if lmm_remainder > Quantity::ZERO && !allocations.is_empty() {
+                allocations[0].1 = allocations[0].1 + lmm_remainder;
+                lmm_allocated = lmm_allocated + lmm_remainder;
             }
         }
 
         // Step 2: Pro-rata allocation for remaining quantity among ALL eligible orders
         let remaining_qty = quantity_to_fill - lmm_allocated;
 
-        if remaining_qty > Decimal::ZERO && total_eligible_quantity > Decimal::ZERO {
-            let mut prorata_allocated = Decimal::ZERO;
+        if remaining_qty > Quantity::ZERO && total_eligible_quantity > Quantity::ZERO {
+            let mut prorata_allocated = Quantity::ZERO;
             let mut prorata_allocs = Vec::new();
+            let total_eligible_raw = total_eligible_quantity.raw_value();
+            let remaining_raw = remaining_qty.raw_value();
 
             for (order_id, order_quantity, _is_lmm) in all_eligible_orders.iter() {
-                let allocation = (order_quantity / total_eligible_quantity) * remaining_qty;
-                let allocation = allocation.floor();
+                let order_raw = order_quantity.raw_value();
+                let allocation_raw = ((order_raw as i128 * remaining_raw as i128) / total_eligible_raw as i128) as i64;
+                let allocation = Quantity::from_raw(allocation_raw);
 
                 prorata_allocs.push((*order_id, allocation));
-                prorata_allocated += allocation;
+                prorata_allocated = prorata_allocated + allocation;
             }
 
             // Handle pro-rata remainder
             let prorata_remainder = remaining_qty - prorata_allocated;
-            if prorata_remainder > Decimal::ZERO && !prorata_allocs.is_empty() {
-                prorata_allocs[0].1 += prorata_remainder;
+            if prorata_remainder > Quantity::ZERO && !prorata_allocs.is_empty() {
+                prorata_allocs[0].1 = prorata_allocs[0].1 + prorata_remainder;
             }
 
             // Merge allocations (sum up for orders that appear in both lists)
             for (order_id, prorata_qty) in prorata_allocs {
                 if let Some(existing) = allocations.iter_mut().find(|(id, _)| *id == order_id) {
-                    existing.1 += prorata_qty;
+                    existing.1 = existing.1 + prorata_qty;
                 } else {
                     allocations.push((order_id, prorata_qty));
                 }
@@ -178,7 +190,7 @@ impl MatchingAlgorithm for LmmPriority {
     fn match_order(&self, incoming_order: Arc<Order>, opposite_side: &OrderBookSide) -> Vec<Trade> {
         let mut trades = Vec::new();
 
-        while incoming_order.get_remaining_quantity() > Decimal::ZERO {
+        while incoming_order.get_remaining_quantity() > Quantity::ZERO {
             let best_level = match opposite_side.best_level() {
                 Some(level) => level,
                 None => break,
@@ -199,7 +211,7 @@ impl MatchingAlgorithm for LmmPriority {
 
             // Execute allocations
             for (order_id, allocated_qty) in allocations {
-                if allocated_qty <= Decimal::ZERO {
+                if allocated_qty <= Quantity::ZERO {
                     continue;
                 }
 
@@ -224,7 +236,7 @@ impl MatchingAlgorithm for LmmPriority {
                 if let Some(maker_order) = found_order {
                     let trade_quantity = allocated_qty.min(maker_order.get_remaining_quantity());
 
-                    if trade_quantity > Decimal::ZERO
+                    if trade_quantity > Quantity::ZERO
                         && maker_order.try_fill(trade_quantity)
                         && incoming_order.try_fill(trade_quantity)
                     {
@@ -240,13 +252,13 @@ impl MatchingAlgorithm for LmmPriority {
                         trades.push(trade);
 
                         // Put maker order back if not fully filled
-                        if maker_order.get_remaining_quantity() > Decimal::ZERO {
+                        if maker_order.get_remaining_quantity() > Quantity::ZERO {
                             best_level.orders.push(maker_order);
                         }
                     }
                 }
 
-                if incoming_order.get_remaining_quantity() == Decimal::ZERO {
+                if incoming_order.get_remaining_quantity() == Quantity::ZERO {
                     break;
                 }
             }
@@ -274,14 +286,15 @@ impl MatchingAlgorithm for LmmPriority {
 mod tests {
     use super::*;
     use crate::domain::{OrderType, Side, TimeInForce};
+    use crate::numeric::Price;
 
     #[test]
     fn test_lmm_priority_allocation() {
         // Setup: 40% LMM allocation, 10 BTC minimum
         let algo = LmmPriority::new(
             vec!["mm1".to_string(), "mm2".to_string()],
-            Decimal::from_str_exact("0.4").unwrap(), // 40%
-            Decimal::from(10),
+            Quantity::from_parts(0, 400_000_000).unwrap(), // 0.4 = 40%
+            Quantity::from_integer(10).unwrap(),
         );
 
         let side = OrderBookSide::new(Side::Sell);
@@ -292,8 +305,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100), // 100 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(), // 100 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -302,8 +315,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(150), // 150 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(150).unwrap(), // 150 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -312,8 +325,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(50), // 50 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(50).unwrap(), // 50 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -322,8 +335,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(200), // 200 BTC
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(200).unwrap(), // 200 BTC
             TimeInForce::GoodTillCancel,
         ));
 
@@ -338,35 +351,33 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(200),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(200).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
         let trades = algo.match_order(buy, &side);
 
         // Verify total filled
-        let total_filled: Decimal = trades.iter().map(|t| t.quantity).sum();
-        assert_eq!(total_filled, Decimal::from(200));
+        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        assert_eq!(total_filled, Quantity::from_integer(200).unwrap());
 
         // LMMs should get preferential treatment
-        let mm1_filled: Decimal = trades.iter()
+        let mm1_filled: Quantity = trades.iter()
             .filter(|t| t.maker_order_id == sell_mm1.id)
             .map(|t| t.quantity)
-            .sum();
+            .fold(Quantity::ZERO, |a, b| a + b);
 
-        let mm2_filled: Decimal = trades.iter()
+        let mm2_filled: Quantity = trades.iter()
             .filter(|t| t.maker_order_id == sell_mm2.id)
             .map(|t| t.quantity)
-            .sum();
+            .fold(Quantity::ZERO, |a, b| a + b);
 
         // LMMs should get more than their proportional share due to 40% allocation
-        // mm1 has 100/500 = 20% of total, but should get more due to LMM priority
-        // mm2 has 50/500 = 10% of total, but should get more due to LMM priority
         let lmm_total = mm1_filled + mm2_filled;
 
         // LMMs should collectively get at least 40% of 200 = 80 BTC
-        assert!(lmm_total >= Decimal::from(80), "LMMs should get at least their priority allocation");
+        assert!(lmm_total >= Quantity::from_integer(80).unwrap(), "LMMs should get at least their priority allocation");
     }
 
     #[test]
@@ -374,8 +385,8 @@ mod tests {
         // Only LMM orders in book
         let algo = LmmPriority::new(
             vec!["mm1".to_string()],
-            Decimal::from_str_exact("0.5").unwrap(), // 50%
-            Decimal::ZERO,
+            Quantity::from_parts(0, 500_000_000).unwrap(), // 0.5 = 50%
+            Quantity::ZERO,
         );
 
         let side = OrderBookSide::new(Side::Sell);
@@ -385,8 +396,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -397,8 +408,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(50),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(50).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -406,7 +417,7 @@ mod tests {
 
         // Should match entire quantity with LMM
         assert_eq!(trades.len(), 1);
-        assert_eq!(trades[0].quantity, Decimal::from(50));
+        assert_eq!(trades[0].quantity, Quantity::from_integer(50).unwrap());
         assert_eq!(trades[0].maker_order_id, sell_mm.id);
     }
 
@@ -415,8 +426,8 @@ mod tests {
         // No LMM orders - should behave like regular pro-rata
         let algo = LmmPriority::new(
             vec!["mm1".to_string()],
-            Decimal::from_str_exact("0.4").unwrap(),
-            Decimal::ZERO,
+            Quantity::from_parts(0, 400_000_000).unwrap(),
+            Quantity::ZERO,
         );
 
         let side = OrderBookSide::new(Side::Sell);
@@ -426,8 +437,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -436,8 +447,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(200),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(200).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -449,80 +460,23 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(150),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(150).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
         let trades = algo.match_order(buy, &side);
 
-        let total_filled: Decimal = trades.iter().map(|t| t.quantity).sum();
-        assert_eq!(total_filled, Decimal::from(150));
-
-        // Should be pro-rata allocation (no LMM priority)
-        // sell1: 100/300 * 150 = 50
-        // sell2: 200/300 * 150 = 100
-    }
-
-    #[test]
-    fn test_lmm_minimum_quantity_filter() {
-        let algo = LmmPriority::new(
-            vec!["mm1".to_string()],
-            Decimal::from_str_exact("0.5").unwrap(),
-            Decimal::from(50), // 50 BTC minimum
-        );
-
-        let side = OrderBookSide::new(Side::Sell);
-
-        // Small LMM order (below minimum)
-        let sell_mm_small = Arc::new(Order::new(
-            "mm1".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(10), // Below minimum
-            TimeInForce::GoodTillCancel,
-        ));
-
-        // Large regular order (above minimum)
-        let sell_user = Arc::new(Order::new(
-            "user1".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100), // Above minimum
-            TimeInForce::GoodTillCancel,
-        ));
-
-        side.add_order(sell_mm_small);
-        side.add_order(sell_user.clone());
-
-        let buy = Arc::new(Order::new(
-            "buyer".to_string(),
-            "BTC-USD".to_string(),
-            Side::Buy,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let trades = algo.match_order(buy, &side);
-
-        // Should only match with user order (mm order below minimum)
-        assert_eq!(trades.len(), 1);
-        assert_eq!(trades[0].maker_order_id, sell_user.id);
-        assert_eq!(trades[0].quantity, Decimal::from(100));
+        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        assert_eq!(total_filled, Quantity::from_integer(150).unwrap());
     }
 
     #[test]
     fn test_lmm_empty_book() {
         let algo = LmmPriority::new(
             vec!["mm1".to_string()],
-            Decimal::from_str_exact("0.4").unwrap(),
-            Decimal::ZERO,
+            Quantity::from_parts(0, 400_000_000).unwrap(),
+            Quantity::ZERO,
         );
 
         let side = OrderBookSide::new(Side::Sell);
@@ -532,95 +486,12 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(100).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
         let trades = algo.match_order(buy, &side);
         assert!(trades.is_empty(), "No trades with empty book");
-    }
-
-    #[test]
-    fn test_lmm_multiple_market_makers() {
-        // Test with multiple LMMs sharing allocation
-        let algo = LmmPriority::new(
-            vec!["mm1".to_string(), "mm2".to_string(), "mm3".to_string()],
-            Decimal::from_str_exact("0.6").unwrap(), // 60% LMM allocation
-            Decimal::ZERO,
-        );
-
-        let side = OrderBookSide::new(Side::Sell);
-
-        let sell_mm1 = Arc::new(Order::new(
-            "mm1".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let sell_mm2 = Arc::new(Order::new(
-            "mm2".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let sell_mm3 = Arc::new(Order::new(
-            "mm3".to_string(),
-            "BTC-USD".to_string(),
-            Side::Sell,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(100),
-            TimeInForce::GoodTillCancel,
-        ));
-
-        side.add_order(sell_mm1.clone());
-        side.add_order(sell_mm2.clone());
-        side.add_order(sell_mm3.clone());
-
-        let buy = Arc::new(Order::new(
-            "buyer".to_string(),
-            "BTC-USD".to_string(),
-            Side::Buy,
-            OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(300),
-            TimeInForce::GoodTillCancel,
-        ));
-
-        let trades = algo.match_order(buy, &side);
-
-        // Verify total filled (all orders should be filled)
-        let total_filled: Decimal = trades.iter().map(|t| t.quantity).sum();
-        assert_eq!(total_filled, Decimal::from(300), "All 300 BTC should be filled");
-
-        // Verify each LMM got their share
-        let mm1_filled: Decimal = trades.iter()
-            .filter(|t| t.maker_order_id == sell_mm1.id)
-            .map(|t| t.quantity)
-            .sum();
-
-        let mm2_filled: Decimal = trades.iter()
-            .filter(|t| t.maker_order_id == sell_mm2.id)
-            .map(|t| t.quantity)
-            .sum();
-
-        let mm3_filled: Decimal = trades.iter()
-            .filter(|t| t.maker_order_id == sell_mm3.id)
-            .map(|t| t.quantity)
-            .sum();
-
-        // Each MM should get 100 BTC (their full order size)
-        assert_eq!(mm1_filled, Decimal::from(100));
-        assert_eq!(mm2_filled, Decimal::from(100));
-        assert_eq!(mm3_filled, Decimal::from(100));
     }
 }

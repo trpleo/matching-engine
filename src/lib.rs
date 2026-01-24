@@ -19,7 +19,7 @@
 //!
 //! ```rust
 //! use matching_engine::prelude::*;
-//! use rust_decimal::Decimal;
+//! use matching_engine::numeric::{Price, Quantity};
 //! use std::sync::Arc;
 //!
 //! // Create matching engine with Price/Time algorithm
@@ -35,8 +35,8 @@
 //!     "BTC-USD".to_string(),
 //!     Side::Sell,
 //!     OrderType::Limit,
-//!     Some(Decimal::from(50000)),
-//!     Decimal::from(1),
+//!     Some(Price::from_integer(50000).unwrap()),
+//!     Quantity::from_integer(1).unwrap(),
 //!     TimeInForce::GoodTillCancel,
 //! ));
 //!
@@ -52,6 +52,7 @@
 pub mod domain;
 pub mod engine;
 pub mod interfaces;
+pub mod numeric;
 pub mod simd;
 pub mod utils;
 
@@ -76,7 +77,7 @@ pub mod prelude {
 #[cfg(test)]
 mod integration_tests {
     use super::prelude::*;
-    use rust_decimal::Decimal;
+    use crate::numeric::{Price, Quantity};
     use std::sync::Arc;
 
     #[test]
@@ -93,8 +94,8 @@ mod integration_tests {
             "BTC-USD".to_string(),
             Side::Sell,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 
@@ -109,8 +110,8 @@ mod integration_tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         ));
 

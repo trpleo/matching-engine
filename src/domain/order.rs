@@ -2,9 +2,9 @@
 // Order Domain Model
 // ============================================================================
 
+use crate::numeric::{Price, Quantity};
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU8, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -51,7 +51,7 @@ pub enum Side {
 pub enum OrderType {
     Limit,
     Market,
-    StopLimit { trigger_price: Decimal },
+    StopLimit { trigger_price: Price },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,7 +136,7 @@ pub mod state {
 
                 (OrderState::Accepted, OrderStateTransition::PartialFill) => {
                     Ok(OrderState::PartiallyFilled)
-                },
+                }
                 (OrderState::Accepted, OrderStateTransition::Fill) => Ok(OrderState::Filled),
                 (OrderState::Accepted, OrderStateTransition::Cancel) => Ok(OrderState::Cancelled),
                 (OrderState::Accepted, OrderStateTransition::Expire) => Ok(OrderState::Expired),
@@ -144,10 +144,10 @@ pub mod state {
                 (OrderState::PartiallyFilled, OrderStateTransition::Fill) => Ok(OrderState::Filled),
                 (OrderState::PartiallyFilled, OrderStateTransition::Cancel) => {
                     Ok(OrderState::Cancelled)
-                },
+                }
                 (OrderState::PartiallyFilled, OrderStateTransition::Expire) => {
                     Ok(OrderState::Expired)
-                },
+                }
 
                 _ => Err(format!(
                     "Invalid transition from {:?} via {:?}",
@@ -170,8 +170,8 @@ pub struct Order {
     pub instrument: Arc<String>,
     pub side: Side,
     pub order_type: OrderType,
-    pub price: Option<Decimal>,
-    pub quantity: Decimal,
+    pub price: Option<Price>,
+    pub quantity: Quantity,
     pub time_in_force: TimeInForce,
     pub timestamp: DateTime<Utc>,
 
@@ -179,13 +179,13 @@ pub struct Order {
     /// If true, order is hidden from order book snapshots (dark pool order)
     pub is_hidden: bool,
     /// For iceberg orders: visible quantity (None = fully visible)
-    pub display_quantity: Option<Decimal>,
+    pub display_quantity: Option<Quantity>,
 
-    // Atomic fields for lock-free updates (stored as micros for precision)
-    filled_quantity: AtomicU64,
-    remaining_quantity: AtomicU64,
+    // Atomic fields for lock-free updates (stored as raw i64 from FixedDecimal)
+    filled_quantity: AtomicI64,
+    remaining_quantity: AtomicI64,
     state: AtomicU8,
-    sequence_number: AtomicU64,
+    sequence_number: AtomicI64,
 }
 
 impl Order {
@@ -194,12 +194,10 @@ impl Order {
         instrument: String,
         side: Side,
         order_type: OrderType,
-        price: Option<Decimal>,
-        quantity: Decimal,
+        price: Option<Price>,
+        quantity: Quantity,
         time_in_force: TimeInForce,
     ) -> Self {
-        let quantity_micros = Self::decimal_to_micros(quantity);
-
         Self {
             id: OrderId::new(),
             user_id: Arc::new(user_id),
@@ -212,10 +210,10 @@ impl Order {
             timestamp: Utc::now(),
             is_hidden: false,
             display_quantity: None,
-            filled_quantity: AtomicU64::new(0),
-            remaining_quantity: AtomicU64::new(quantity_micros),
+            filled_quantity: AtomicI64::new(0),
+            remaining_quantity: AtomicI64::new(quantity.raw_value()),
             state: AtomicU8::new(state::OrderState::Pending as u8),
-            sequence_number: AtomicU64::new(0),
+            sequence_number: AtomicI64::new(0),
         }
     }
 
@@ -225,11 +223,12 @@ impl Order {
         instrument: String,
         side: Side,
         order_type: OrderType,
-        price: Option<Decimal>,
-        quantity: Decimal,
+        price: Option<Price>,
+        quantity: Quantity,
         time_in_force: TimeInForce,
     ) -> Self {
-        let mut order = Self::new(user_id, instrument, side, order_type, price, quantity, time_in_force);
+        let mut order =
+            Self::new(user_id, instrument, side, order_type, price, quantity, time_in_force);
         order.is_hidden = true;
         order
     }
@@ -240,20 +239,21 @@ impl Order {
         instrument: String,
         side: Side,
         order_type: OrderType,
-        price: Option<Decimal>,
-        quantity: Decimal,
-        display_quantity: Decimal,
+        price: Option<Price>,
+        quantity: Quantity,
+        display_quantity: Quantity,
         time_in_force: TimeInForce,
     ) -> Self {
-        let mut order = Self::new(user_id, instrument, side, order_type, price, quantity, time_in_force);
+        let mut order =
+            Self::new(user_id, instrument, side, order_type, price, quantity, time_in_force);
         order.display_quantity = Some(display_quantity);
         order
     }
 
     /// Get the visible quantity for this order (respects iceberg display quantity)
-    pub fn get_visible_quantity(&self) -> Decimal {
+    pub fn get_visible_quantity(&self) -> Quantity {
         if self.is_hidden {
-            Decimal::ZERO
+            Quantity::ZERO
         } else if let Some(display) = self.display_quantity {
             display.min(self.get_remaining_quantity())
         } else {
@@ -265,19 +265,19 @@ impl Order {
     // Atomic Getters
     // ========================================================================
 
-    pub fn get_filled_quantity(&self) -> Decimal {
-        Self::micros_to_decimal(self.filled_quantity.load(Ordering::Acquire))
+    pub fn get_filled_quantity(&self) -> Quantity {
+        Quantity::from_raw(self.filled_quantity.load(Ordering::Acquire))
     }
 
-    pub fn get_remaining_quantity(&self) -> Decimal {
-        Self::micros_to_decimal(self.remaining_quantity.load(Ordering::Acquire))
+    pub fn get_remaining_quantity(&self) -> Quantity {
+        Quantity::from_raw(self.remaining_quantity.load(Ordering::Acquire))
     }
 
     pub fn get_state(&self) -> state::OrderState {
         state::OrderState::from_u8(self.state.load(Ordering::Acquire))
     }
 
-    pub fn get_sequence_number(&self) -> u64 {
+    pub fn get_sequence_number(&self) -> i64 {
         self.sequence_number.load(Ordering::Acquire)
     }
 
@@ -287,17 +287,17 @@ impl Order {
 
     /// Atomically fill a quantity of this order
     /// Returns true if successful, false if insufficient quantity
-    pub fn try_fill(&self, quantity: Decimal) -> bool {
-        let quantity_micros = Self::decimal_to_micros(quantity);
+    pub fn try_fill(&self, quantity: Quantity) -> bool {
+        let quantity_raw = quantity.raw_value();
 
         loop {
             let current_remaining = self.remaining_quantity.load(Ordering::Acquire);
 
-            if current_remaining < quantity_micros {
+            if current_remaining < quantity_raw {
                 return false; // Not enough quantity
             }
 
-            let new_remaining = current_remaining - quantity_micros;
+            let new_remaining = current_remaining - quantity_raw;
 
             // Try to update remaining quantity atomically (CAS)
             if self
@@ -312,7 +312,7 @@ impl Order {
             {
                 // Update filled quantity
                 self.filled_quantity
-                    .fetch_add(quantity_micros, Ordering::AcqRel);
+                    .fetch_add(quantity_raw, Ordering::AcqRel);
 
                 // Update state
                 if new_remaining == 0 {
@@ -350,7 +350,7 @@ impl Order {
     }
 
     /// Set the sequence number (called by matching engine)
-    pub fn set_sequence_number(&self, seq: u64) {
+    pub fn set_sequence_number(&self, seq: i64) {
         self.sequence_number.store(seq, Ordering::Release);
     }
 
@@ -362,15 +362,6 @@ impl Order {
     // ========================================================================
     // Helper Methods
     // ========================================================================
-
-    fn decimal_to_micros(value: Decimal) -> u64 {
-        use rust_decimal::prelude::ToPrimitive;
-        (value * Decimal::from(1_000_000)).to_u64().unwrap_or(0)
-    }
-
-    fn micros_to_decimal(micros: u64) -> Decimal {
-        Decimal::from(micros) / Decimal::from(1_000_000)
-    }
 
     pub fn is_market_order(&self) -> bool {
         matches!(self.order_type, OrderType::Market)
@@ -396,10 +387,10 @@ impl Clone for Order {
             timestamp: self.timestamp,
             is_hidden: self.is_hidden,
             display_quantity: self.display_quantity,
-            filled_quantity: AtomicU64::new(self.filled_quantity.load(Ordering::Acquire)),
-            remaining_quantity: AtomicU64::new(self.remaining_quantity.load(Ordering::Acquire)),
+            filled_quantity: AtomicI64::new(self.filled_quantity.load(Ordering::Acquire)),
+            remaining_quantity: AtomicI64::new(self.remaining_quantity.load(Ordering::Acquire)),
             state: AtomicU8::new(self.state.load(Ordering::Acquire)),
-            sequence_number: AtomicU64::new(self.sequence_number.load(Ordering::Acquire)),
+            sequence_number: AtomicI64::new(self.sequence_number.load(Ordering::Acquire)),
         }
     }
 }
@@ -415,13 +406,13 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         );
 
-        assert_eq!(order.get_remaining_quantity(), Decimal::from(1));
-        assert_eq!(order.get_filled_quantity(), Decimal::ZERO);
+        assert_eq!(order.get_remaining_quantity(), Quantity::from_integer(1).unwrap());
+        assert_eq!(order.get_filled_quantity(), Quantity::ZERO);
         assert_eq!(order.get_state(), state::OrderState::Pending);
     }
 
@@ -432,17 +423,17 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(10),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(10).unwrap(),
             TimeInForce::GoodTillCancel,
         );
 
-        assert!(order.try_fill(Decimal::from(3)));
-        assert_eq!(order.get_filled_quantity(), Decimal::from(3));
-        assert_eq!(order.get_remaining_quantity(), Decimal::from(7));
+        assert!(order.try_fill(Quantity::from_integer(3).unwrap()));
+        assert_eq!(order.get_filled_quantity(), Quantity::from_integer(3).unwrap());
+        assert_eq!(order.get_remaining_quantity(), Quantity::from_integer(7).unwrap());
         assert_eq!(order.get_state(), state::OrderState::PartiallyFilled);
 
-        assert!(order.try_fill(Decimal::from(7)));
+        assert!(order.try_fill(Quantity::from_integer(7).unwrap()));
         assert_eq!(order.get_state(), state::OrderState::Filled);
     }
 
@@ -453,13 +444,13 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(5),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(5).unwrap(),
             TimeInForce::GoodTillCancel,
         );
 
-        assert!(!order.try_fill(Decimal::from(10)));
-        assert_eq!(order.get_filled_quantity(), Decimal::ZERO);
+        assert!(!order.try_fill(Quantity::from_integer(10).unwrap()));
+        assert_eq!(order.get_filled_quantity(), Quantity::ZERO);
     }
 
     #[test]
@@ -469,8 +460,8 @@ mod tests {
             "BTC-USD".to_string(),
             Side::Buy,
             OrderType::Limit,
-            Some(Decimal::from(50000)),
-            Decimal::from(1),
+            Some(Price::from_integer(50000).unwrap()),
+            Quantity::from_integer(1).unwrap(),
             TimeInForce::GoodTillCancel,
         );
 

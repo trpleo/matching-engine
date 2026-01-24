@@ -3,7 +3,7 @@
 // Comprehensive configuration for order book type and matching behavior
 // ============================================================================
 
-use rust_decimal::Decimal;
+use crate::numeric::{Price, Quantity};
 use std::collections::HashSet;
 
 #[cfg(feature = "serde")]
@@ -55,7 +55,7 @@ pub enum MatchingAlgorithmType {
     /// Use case: Derivatives markets (CME, Eurex)
     ProRata {
         /// Minimum order size to participate in pro-rata allocation
-        minimum_quantity: Decimal,
+        minimum_quantity: Quantity,
         /// Whether to give FIFO priority to top-of-book order
         top_of_book_fifo: bool,
     },
@@ -65,7 +65,7 @@ pub enum MatchingAlgorithmType {
     /// Use case: Eurex, ICE Futures
     ProRataTobFifo {
         /// Minimum order size for pro-rata participation
-        minimum_quantity: Decimal,
+        minimum_quantity: Quantity,
     },
 
     /// Lead Market Maker Priority
@@ -75,9 +75,10 @@ pub enum MatchingAlgorithmType {
         /// Set of account IDs designated as LMMs
         lmm_accounts: HashSet<String>,
         /// Percentage of incoming order allocated to LMMs first (0.0 - 1.0)
-        lmm_allocation_pct: Decimal,
+        /// Stored as fixed-point: 0.4 = 40%
+        lmm_allocation_pct: Quantity,
         /// Minimum order size for non-LMM pro-rata participation
-        minimum_quantity: Decimal,
+        minimum_quantity: Quantity,
     },
 
     /// Threshold Pro-Rata
@@ -85,9 +86,9 @@ pub enum MatchingAlgorithmType {
     /// Use case: Protecting retail traders while serving institutions
     ThresholdProRata {
         /// Order size threshold (orders < threshold get FIFO)
-        threshold: Decimal,
+        threshold: Quantity,
         /// Minimum size for pro-rata participation (only for large orders)
-        minimum_quantity: Decimal,
+        minimum_quantity: Quantity,
     },
 }
 
@@ -114,11 +115,11 @@ pub struct OrderBookConfig {
 
     /// Optional: Price tick size (minimum price increment)
     /// None means no tick size enforcement
-    pub tick_size: Option<Decimal>,
+    pub tick_size: Option<Price>,
 
     /// Optional: Lot size (minimum quantity increment)
     /// None means no lot size enforcement
-    pub lot_size: Option<Decimal>,
+    pub lot_size: Option<Quantity>,
 }
 
 impl OrderBookConfig {
@@ -145,13 +146,13 @@ impl OrderBookConfig {
     }
 
     /// Builder method: Set price tick size
-    pub fn with_tick_size(mut self, tick: Decimal) -> Self {
+    pub fn with_tick_size(mut self, tick: Price) -> Self {
         self.tick_size = Some(tick);
         self
     }
 
     /// Builder method: Set lot size
-    pub fn with_lot_size(mut self, lot: Decimal) -> Self {
+    pub fn with_lot_size(mut self, lot: Quantity) -> Self {
         self.lot_size = Some(lot);
         self
     }
@@ -165,14 +166,14 @@ impl OrderBookConfig {
 
         // Validate tick size
         if let Some(tick) = self.tick_size {
-            if tick <= Decimal::ZERO {
+            if !tick.is_positive() {
                 return Err("Tick size must be positive".to_string());
             }
         }
 
         // Validate lot size
         if let Some(lot) = self.lot_size {
-            if lot <= Decimal::ZERO {
+            if !lot.is_positive() {
                 return Err("Lot size must be positive".to_string());
             }
         }
@@ -182,12 +183,12 @@ impl OrderBookConfig {
             MatchingAlgorithmType::ProRata {
                 minimum_quantity, ..
             } => {
-                if *minimum_quantity < Decimal::ZERO {
+                if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
             }
             MatchingAlgorithmType::ProRataTobFifo { minimum_quantity } => {
-                if *minimum_quantity < Decimal::ZERO {
+                if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
             }
@@ -196,10 +197,13 @@ impl OrderBookConfig {
                 minimum_quantity,
                 ..
             } => {
-                if *lmm_allocation_pct < Decimal::ZERO || *lmm_allocation_pct > Decimal::ONE {
+                // LMM allocation should be between 0 and 1 (0% to 100%)
+                // Since we're using Quantity (9 decimals), 1.0 = 1_000_000_000 raw
+                let one = Quantity::ONE;
+                if lmm_allocation_pct.is_negative() || *lmm_allocation_pct > one {
                     return Err("LMM allocation percentage must be between 0 and 1".to_string());
                 }
-                if *minimum_quantity < Decimal::ZERO {
+                if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
             }
@@ -207,10 +211,10 @@ impl OrderBookConfig {
                 threshold,
                 minimum_quantity,
             } => {
-                if *threshold <= Decimal::ZERO {
+                if !threshold.is_positive() {
                     return Err("Threshold must be positive".to_string());
                 }
-                if *minimum_quantity < Decimal::ZERO {
+                if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
             }
@@ -236,14 +240,14 @@ impl OrderBookConfig {
             OrderBookType::Transparent,
             MatchingAlgorithmType::PriceTime { use_simd: true },
         )
-        .with_tick_size(Decimal::new(1, 2)) // $0.01
+        .with_tick_size(Price::from_parts(0, 10_000_000).unwrap()) // $0.01
     }
 
     /// CME-style futures configuration
     /// - Transparent order book
     /// - Pro-rata matching
     /// - Configurable minimum quantity
-    pub fn cme_style(instrument: String, minimum_quantity: Decimal) -> Self {
+    pub fn cme_style(instrument: String, minimum_quantity: Quantity) -> Self {
         Self::new(
             instrument,
             OrderBookType::Transparent,
@@ -257,7 +261,7 @@ impl OrderBookConfig {
     /// Eurex-style futures configuration
     /// - Transparent order book
     /// - Pro-rata with top-of-book FIFO
-    pub fn eurex_style(instrument: String, minimum_quantity: Decimal) -> Self {
+    pub fn eurex_style(instrument: String, minimum_quantity: Quantity) -> Self {
         Self::new(
             instrument,
             OrderBookType::Transparent,
@@ -282,7 +286,7 @@ impl OrderBookConfig {
     pub fn crypto_with_lmm(
         instrument: String,
         lmm_accounts: HashSet<String>,
-        lmm_allocation_pct: Decimal,
+        lmm_allocation_pct: Quantity,
     ) -> Self {
         Self::new(
             instrument,
@@ -290,7 +294,7 @@ impl OrderBookConfig {
             MatchingAlgorithmType::LmmPriority {
                 lmm_accounts,
                 lmm_allocation_pct,
-                minimum_quantity: Decimal::ZERO,
+                minimum_quantity: Quantity::ZERO,
             },
         )
     }
@@ -298,13 +302,13 @@ impl OrderBookConfig {
     /// Retail-friendly configuration with threshold pro-rata
     /// - Transparent order book
     /// - Small orders get FIFO protection
-    pub fn retail_friendly(instrument: String, threshold: Decimal) -> Self {
+    pub fn retail_friendly(instrument: String, threshold: Quantity) -> Self {
         Self::new(
             instrument,
             OrderBookType::Transparent,
             MatchingAlgorithmType::ThresholdProRata {
                 threshold,
-                minimum_quantity: Decimal::ZERO,
+                minimum_quantity: Quantity::ZERO,
             },
         )
     }
@@ -331,10 +335,10 @@ mod tests {
     fn test_builder_pattern() {
         let config = OrderBookConfig::nasdaq_style("AAPL".to_string())
             .with_max_depth(100)
-            .with_lot_size(Decimal::from(1));
+            .with_lot_size(Quantity::from_integer(1).unwrap());
 
         assert_eq!(config.max_depth, Some(100));
-        assert_eq!(config.lot_size, Some(Decimal::from(1)));
+        assert_eq!(config.lot_size, Some(Quantity::from_integer(1).unwrap()));
     }
 
     #[test]

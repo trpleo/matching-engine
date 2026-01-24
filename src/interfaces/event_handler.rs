@@ -4,8 +4,8 @@
 // ============================================================================
 
 use crate::domain::{OrderId, Trade};
+use crate::numeric::{Price, Quantity};
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -42,15 +42,15 @@ pub enum OrderEvent {
     /// Order partially filled
     OrderPartiallyFilled {
         order_id: OrderId,
-        filled_quantity: Decimal,
-        remaining_quantity: Decimal,
+        filled_quantity: Quantity,
+        remaining_quantity: Quantity,
         timestamp: DateTime<Utc>,
     },
 
     /// Order fully filled
     OrderFilled {
         order_id: OrderId,
-        total_filled: Decimal,
+        total_filled: Quantity,
         timestamp: DateTime<Utc>,
     },
 
@@ -69,8 +69,8 @@ pub enum OrderEvent {
     /// Order added to book
     OrderAddedToBook {
         order_id: OrderId,
-        price: Decimal,
-        quantity: Decimal,
+        price: Price,
+        quantity: Quantity,
         timestamp: DateTime<Utc>,
     },
 }

@@ -97,13 +97,13 @@ fn create_matching_algorithm(
 /// ```
 /// use matching_engine::prelude::*;
 /// use matching_engine::engine::factory::MatchingEngineBuilder;
+/// use matching_engine::numeric::Price;
 /// use std::sync::Arc;
-/// use rust_decimal::Decimal;
 ///
 /// let engine = MatchingEngineBuilder::new("BTC-USD")
 ///     .transparent_order_book()
 ///     .price_time_matching(true)
-///     .with_tick_size(Decimal::new(1, 2))
+///     .with_tick_size(Price::from_parts(0, 10_000_000).unwrap())
 ///     .build(Arc::new(NoOpEventHandler))
 ///     .unwrap();
 /// ```
@@ -158,7 +158,7 @@ impl MatchingEngineBuilder {
     /// Configure pro-rata matching
     pub fn pro_rata_matching(
         mut self,
-        minimum_quantity: rust_decimal::Decimal,
+        minimum_quantity: crate::numeric::Quantity,
         top_of_book_fifo: bool,
     ) -> Self {
         self.config.matching_algorithm = MatchingAlgorithmType::ProRata {
@@ -169,7 +169,7 @@ impl MatchingEngineBuilder {
     }
 
     /// Configure pro-rata with top-of-book FIFO
-    pub fn pro_rata_tob_fifo_matching(mut self, minimum_quantity: rust_decimal::Decimal) -> Self {
+    pub fn pro_rata_tob_fifo_matching(mut self, minimum_quantity: crate::numeric::Quantity) -> Self {
         self.config.matching_algorithm = MatchingAlgorithmType::ProRataTobFifo { minimum_quantity };
         self
     }
@@ -178,8 +178,8 @@ impl MatchingEngineBuilder {
     pub fn lmm_priority_matching(
         mut self,
         lmm_accounts: std::collections::HashSet<String>,
-        lmm_allocation_pct: rust_decimal::Decimal,
-        minimum_quantity: rust_decimal::Decimal,
+        lmm_allocation_pct: crate::numeric::Quantity,
+        minimum_quantity: crate::numeric::Quantity,
     ) -> Self {
         self.config.matching_algorithm = MatchingAlgorithmType::LmmPriority {
             lmm_accounts,
@@ -192,8 +192,8 @@ impl MatchingEngineBuilder {
     /// Configure threshold pro-rata matching
     pub fn threshold_pro_rata_matching(
         mut self,
-        threshold: rust_decimal::Decimal,
-        minimum_quantity: rust_decimal::Decimal,
+        threshold: crate::numeric::Quantity,
+        minimum_quantity: crate::numeric::Quantity,
     ) -> Self {
         self.config.matching_algorithm = MatchingAlgorithmType::ThresholdProRata {
             threshold,
@@ -213,13 +213,13 @@ impl MatchingEngineBuilder {
     }
 
     /// Set price tick size
-    pub fn with_tick_size(mut self, tick_size: rust_decimal::Decimal) -> Self {
+    pub fn with_tick_size(mut self, tick_size: crate::numeric::Price) -> Self {
         self.config.tick_size = Some(tick_size);
         self
     }
 
     /// Set lot size
-    pub fn with_lot_size(mut self, lot_size: rust_decimal::Decimal) -> Self {
+    pub fn with_lot_size(mut self, lot_size: crate::numeric::Quantity) -> Self {
         self.config.lot_size = Some(lot_size);
         self
     }
@@ -236,14 +236,14 @@ impl MatchingEngineBuilder {
     }
 
     /// Apply CME-style configuration
-    pub fn cme_style(instrument: impl Into<String>, minimum_quantity: rust_decimal::Decimal) -> Self {
+    pub fn cme_style(instrument: impl Into<String>, minimum_quantity: crate::numeric::Quantity) -> Self {
         Self {
             config: OrderBookConfig::cme_style(instrument.into(), minimum_quantity),
         }
     }
 
     /// Apply Eurex-style configuration
-    pub fn eurex_style(instrument: impl Into<String>, minimum_quantity: rust_decimal::Decimal) -> Self {
+    pub fn eurex_style(instrument: impl Into<String>, minimum_quantity: crate::numeric::Quantity) -> Self {
         Self {
             config: OrderBookConfig::eurex_style(instrument.into(), minimum_quantity),
         }
@@ -275,7 +275,7 @@ impl MatchingEngineBuilder {
 mod tests {
     use super::*;
     use crate::interfaces::NoOpEventHandler;
-    use rust_decimal::Decimal;
+    use crate::numeric::{Price, Quantity};
     use std::collections::HashSet;
 
     #[test]
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_create_pro_rata_engine() {
-        let config = OrderBookConfig::cme_style("ES".to_string(), Decimal::from(10));
+        let config = OrderBookConfig::cme_style("ES".to_string(), Quantity::from_integer(10).unwrap());
         let engine = create_from_config(config, Arc::new(NoOpEventHandler)).unwrap();
         assert_eq!(engine.get_instrument(), "ES");
     }
@@ -304,7 +304,7 @@ mod tests {
         let engine = MatchingEngineBuilder::new("BTC-USD")
             .transparent_order_book()
             .price_time_matching(true)
-            .with_tick_size(Decimal::new(1, 2))
+            .with_tick_size(Price::from_parts(0, 10_000_000).unwrap())
             .build(Arc::new(NoOpEventHandler))
             .unwrap();
 
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn test_builder_pro_rata() {
         let engine = MatchingEngineBuilder::new("ETH-USD")
-            .pro_rata_matching(Decimal::from(5), false)
+            .pro_rata_matching(Quantity::from_integer(5).unwrap(), false)
             .build(Arc::new(NoOpEventHandler))
             .unwrap();
 
@@ -339,7 +339,11 @@ mod tests {
         lmm_accounts.insert("lmm2".to_string());
 
         let engine = MatchingEngineBuilder::new("BTC-USD")
-            .lmm_priority_matching(lmm_accounts, Decimal::new(4, 1), Decimal::from(10))
+            .lmm_priority_matching(
+                lmm_accounts,
+                Quantity::from_parts(0, 400_000_000).unwrap(), // 0.4 = 40%
+                Quantity::from_integer(10).unwrap(),
+            )
             .build(Arc::new(NoOpEventHandler))
             .unwrap();
 

@@ -4,6 +4,7 @@
 // ============================================================================
 
 use crate::domain::{Order, OrderBookSide, Trade};
+use crate::numeric::{Price, Quantity};
 use std::sync::Arc;
 
 /// Strategy pattern interface for matching algorithms
@@ -24,13 +25,12 @@ pub trait MatchingAlgorithm: Send + Sync {
 
     /// Optional: Check if two prices can cross
     /// Default implementation handles buy/sell logic
-    fn prices_cross(&self, incoming: &Order, book_price: rust_decimal::Decimal) -> bool {
+    fn prices_cross(&self, incoming: &Order, book_price: Price) -> bool {
         use crate::domain::Side;
-        use rust_decimal::Decimal;
 
         let incoming_price = incoming.price.unwrap_or(match incoming.side {
-            Side::Buy => Decimal::MAX,
-            Side::Sell => Decimal::ZERO,
+            Side::Buy => Price::MAX,
+            Side::Sell => Price::ZERO,
         });
 
         match incoming.side {
@@ -44,7 +44,7 @@ pub trait MatchingAlgorithm: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct MatchingConfig {
     /// Minimum quantity for pro-rata allocation
-    pub min_quantity: rust_decimal::Decimal,
+    pub min_quantity: Quantity,
 
     /// Whether to use SIMD optimizations
     pub use_simd: bool,
@@ -56,19 +56,17 @@ pub struct MatchingConfig {
     pub lmm_accounts: Vec<String>,
 
     /// LMM allocation percentage (e.g., 0.4 for 40%)
-    pub lmm_allocation_pct: rust_decimal::Decimal,
+    pub lmm_allocation_pct: Quantity,
 }
 
 impl Default for MatchingConfig {
     fn default() -> Self {
-        use rust_decimal::Decimal;
-
         Self {
-            min_quantity: Decimal::ZERO,
+            min_quantity: Quantity::ZERO,
             use_simd: true,
             top_of_book_fifo: false,
             lmm_accounts: Vec::new(),
-            lmm_allocation_pct: Decimal::ZERO,
+            lmm_allocation_pct: Quantity::ZERO,
         }
     }
 }
