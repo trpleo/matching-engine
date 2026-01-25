@@ -49,4 +49,3 @@ pub use avx2::Avx2Matcher;
 
 #[cfg(target_arch = "x86_64")]
 pub use avx512::Avx512Matcher;
-
