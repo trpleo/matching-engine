@@ -86,7 +86,8 @@ impl ProRata {
             let order_raw = order_quantity.raw_value();
             // Calculate (order_quantity * quantity_to_fill) / eligible_quantity
             // Use i128 to avoid overflow during multiplication
-            let allocation_raw = ((order_raw as i128 * fill_raw as i128) / eligible_raw as i128) as i64;
+            let allocation_raw =
+                ((order_raw as i128 * fill_raw as i128) / eligible_raw as i128) as i64;
             let allocation = Quantity::from_raw(allocation_raw);
 
             allocations.push((*order_id, allocation));
@@ -248,7 +249,10 @@ mod tests {
         assert!(!trades.is_empty());
 
         // Total filled should be 15
-        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        let total_filled: Quantity = trades
+            .iter()
+            .map(|t| t.quantity)
+            .fold(Quantity::ZERO, |a, b| a + b);
         assert_eq!(total_filled, Quantity::from_integer(15).unwrap());
     }
 

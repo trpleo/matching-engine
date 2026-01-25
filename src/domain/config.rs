@@ -186,12 +186,12 @@ impl OrderBookConfig {
                 if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
-            }
+            },
             MatchingAlgorithmType::ProRataTobFifo { minimum_quantity } => {
                 if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
-            }
+            },
             MatchingAlgorithmType::LmmPriority {
                 lmm_allocation_pct,
                 minimum_quantity,
@@ -206,7 +206,7 @@ impl OrderBookConfig {
                 if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
-            }
+            },
             MatchingAlgorithmType::ThresholdProRata {
                 threshold,
                 minimum_quantity,
@@ -217,8 +217,8 @@ impl OrderBookConfig {
                 if minimum_quantity.is_negative() {
                     return Err("Minimum quantity cannot be negative".to_string());
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(())

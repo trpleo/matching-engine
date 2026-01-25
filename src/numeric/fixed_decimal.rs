@@ -332,7 +332,8 @@ impl<const D: u8> Add for FixedDecimal<D> {
 
     #[inline]
     fn add(self, rhs: Self) -> Self::Output {
-        self.checked_add(rhs).expect("FixedDecimal addition overflow")
+        self.checked_add(rhs)
+            .expect("FixedDecimal addition overflow")
     }
 }
 
@@ -341,7 +342,8 @@ impl<const D: u8> Sub for FixedDecimal<D> {
 
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
-        self.checked_sub(rhs).expect("FixedDecimal subtraction overflow")
+        self.checked_sub(rhs)
+            .expect("FixedDecimal subtraction overflow")
     }
 }
 
@@ -401,8 +403,8 @@ impl<const D: u8> FixedDecimal<D> {
         // Check for precision loss: if decimal has more precision than target
         if decimal_scale > target_scale {
             // Reconstruct and compare
-            let reconstructed = rust_decimal::Decimal::from(raw)
-                / rust_decimal::Decimal::from(Self::SCALE);
+            let reconstructed =
+                rust_decimal::Decimal::from(raw) / rust_decimal::Decimal::from(Self::SCALE);
             if reconstructed != d {
                 return Err(NumericError::PrecisionLoss);
             }

@@ -96,7 +96,8 @@ impl ThresholdProRata {
 
             for (order_id, order_quantity) in large_orders.iter() {
                 let order_raw = order_quantity.raw_value();
-                let allocation_raw = ((order_raw as i128 * remaining_raw as i128) / large_total_raw as i128) as i64;
+                let allocation_raw =
+                    ((order_raw as i128 * remaining_raw as i128) / large_total_raw as i128) as i64;
                 let allocation = Quantity::from_raw(allocation_raw);
 
                 allocations.push((*order_id, allocation));
@@ -106,9 +107,10 @@ impl ThresholdProRata {
             // Handle remainder - give to first large order
             let remainder = remaining_to_allocate - prorata_allocated;
             if remainder > Quantity::ZERO && !large_orders.is_empty() {
-                if let Some(first_large) = allocations.iter_mut().find(|(id, _)| {
-                    large_orders.iter().any(|(large_id, _)| large_id == id)
-                }) {
+                if let Some(first_large) = allocations
+                    .iter_mut()
+                    .find(|(id, _)| large_orders.iter().any(|(large_id, _)| large_id == id))
+                {
                     first_large.1 = first_large.1 + remainder;
                 }
             }
@@ -275,7 +277,10 @@ mod tests {
         let trades = algo.match_order(buy, &side);
 
         // Total should be 40 BTC
-        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        let total_filled: Quantity = trades
+            .iter()
+            .map(|t| t.quantity)
+            .fold(Quantity::ZERO, |a, b| a + b);
         assert_eq!(total_filled, Quantity::from_integer(40).unwrap());
 
         // Verify FIFO order
@@ -330,16 +335,21 @@ mod tests {
 
         let trades = algo.match_order(buy, &side);
 
-        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        let total_filled: Quantity = trades
+            .iter()
+            .map(|t| t.quantity)
+            .fold(Quantity::ZERO, |a, b| a + b);
         assert_eq!(total_filled, Quantity::from_integer(150).unwrap());
 
         // Pro-rata: sell1 gets 150 * (100/300) = 50, sell2 gets 150 * (200/300) = 100
-        let sell1_filled: Quantity = trades.iter()
+        let sell1_filled: Quantity = trades
+            .iter()
             .filter(|t| t.maker_order_id == sell1.id)
             .map(|t| t.quantity)
             .fold(Quantity::ZERO, |a, b| a + b);
 
-        let sell2_filled: Quantity = trades.iter()
+        let sell2_filled: Quantity = trades
+            .iter()
             .filter(|t| t.maker_order_id == sell2.id)
             .map(|t| t.quantity)
             .fold(Quantity::ZERO, |a, b| a + b);

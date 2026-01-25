@@ -21,9 +21,9 @@
 // ```
 // ============================================================================
 
-mod traits;
 mod detector;
 mod scalar;
+mod traits;
 
 #[cfg(target_arch = "aarch64")]
 mod neon;
@@ -35,15 +35,11 @@ mod avx2;
 mod avx512;
 
 // Public exports
-pub use traits::SimdMatcher;
 pub use detector::{
-    create_simd_matcher,
-    create_scalar_matcher,
-    Architecture,
-    CpuCapabilities,
-    SimdLevel,
+    create_scalar_matcher, create_simd_matcher, Architecture, CpuCapabilities, SimdLevel,
 };
 pub use scalar::ScalarMatcher;
+pub use traits::SimdMatcher;
 
 #[cfg(target_arch = "aarch64")]
 pub use neon::NeonMatcher;

@@ -25,10 +25,17 @@ pub enum NumericError {
 impl fmt::Display for NumericError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NumericError::Overflow => write!(f, "arithmetic overflow: result exceeded maximum value"),
-            NumericError::Underflow => write!(f, "arithmetic underflow: result below minimum value"),
+            NumericError::Overflow => {
+                write!(f, "arithmetic overflow: result exceeded maximum value")
+            },
+            NumericError::Underflow => {
+                write!(f, "arithmetic underflow: result below minimum value")
+            },
             NumericError::DivisionByZero => write!(f, "division by zero"),
-            NumericError::PrecisionLoss => write!(f, "precision loss: conversion would lose significant digits"),
+            NumericError::PrecisionLoss => write!(
+                f,
+                "precision loss: conversion would lose significant digits"
+            ),
             NumericError::InvalidInput => write!(f, "invalid input: could not parse value"),
             NumericError::ScaleMismatch => write!(f, "scale mismatch between operands"),
         }
@@ -50,10 +57,7 @@ mod tests {
             NumericError::Overflow.to_string(),
             "arithmetic overflow: result exceeded maximum value"
         );
-        assert_eq!(
-            NumericError::DivisionByZero.to_string(),
-            "division by zero"
-        );
+        assert_eq!(NumericError::DivisionByZero.to_string(), "division by zero");
     }
 
     #[test]

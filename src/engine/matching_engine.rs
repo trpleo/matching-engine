@@ -208,11 +208,10 @@ impl MatchingEngine {
     /// Get mid price
     pub fn get_mid_price(&self) -> Option<Price> {
         match (self.bids.best_price(), self.asks.best_price()) {
-            (Some(bid), Some(ask)) => {
-                bid.checked_add(ask)
-                    .ok()
-                    .map(|sum| Price::from_raw(sum.raw_value() / 2))
-            }
+            (Some(bid), Some(ask)) => bid
+                .checked_add(ask)
+                .ok()
+                .map(|sum| Price::from_raw(sum.raw_value() / 2)),
             _ => None,
         }
     }

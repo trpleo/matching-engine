@@ -199,6 +199,9 @@ mod tests {
 
         assert_eq!(trades.len(), 1);
         assert_eq!(trades[0].quantity, Quantity::from_integer(1).unwrap());
-        assert_eq!(buy.get_remaining_quantity(), Quantity::from_integer(1).unwrap());
+        assert_eq!(
+            buy.get_remaining_quantity(),
+            Quantity::from_integer(1).unwrap()
+        );
     }
 }

@@ -59,7 +59,7 @@ fn create_matching_algorithm(
     match algo_type {
         MatchingAlgorithmType::PriceTime { use_simd } => {
             Ok(Box::new(PriceTimePriority::new(*use_simd)))
-        }
+        },
 
         MatchingAlgorithmType::ProRata {
             minimum_quantity,
@@ -68,7 +68,7 @@ fn create_matching_algorithm(
 
         MatchingAlgorithmType::ProRataTobFifo { minimum_quantity } => {
             Ok(Box::new(ProRataTobFifo::new(*minimum_quantity)))
-        }
+        },
 
         MatchingAlgorithmType::LmmPriority {
             lmm_accounts,
@@ -83,7 +83,10 @@ fn create_matching_algorithm(
         MatchingAlgorithmType::ThresholdProRata {
             threshold,
             minimum_quantity,
-        } => Ok(Box::new(ThresholdProRata::new(*threshold, *minimum_quantity))),
+        } => Ok(Box::new(ThresholdProRata::new(
+            *threshold,
+            *minimum_quantity,
+        ))),
     }
 }
 
@@ -169,7 +172,10 @@ impl MatchingEngineBuilder {
     }
 
     /// Configure pro-rata with top-of-book FIFO
-    pub fn pro_rata_tob_fifo_matching(mut self, minimum_quantity: crate::numeric::Quantity) -> Self {
+    pub fn pro_rata_tob_fifo_matching(
+        mut self,
+        minimum_quantity: crate::numeric::Quantity,
+    ) -> Self {
         self.config.matching_algorithm = MatchingAlgorithmType::ProRataTobFifo { minimum_quantity };
         self
     }
@@ -236,14 +242,20 @@ impl MatchingEngineBuilder {
     }
 
     /// Apply CME-style configuration
-    pub fn cme_style(instrument: impl Into<String>, minimum_quantity: crate::numeric::Quantity) -> Self {
+    pub fn cme_style(
+        instrument: impl Into<String>,
+        minimum_quantity: crate::numeric::Quantity,
+    ) -> Self {
         Self {
             config: OrderBookConfig::cme_style(instrument.into(), minimum_quantity),
         }
     }
 
     /// Apply Eurex-style configuration
-    pub fn eurex_style(instrument: impl Into<String>, minimum_quantity: crate::numeric::Quantity) -> Self {
+    pub fn eurex_style(
+        instrument: impl Into<String>,
+        minimum_quantity: crate::numeric::Quantity,
+    ) -> Self {
         Self {
             config: OrderBookConfig::eurex_style(instrument.into(), minimum_quantity),
         }
@@ -287,7 +299,8 @@ mod tests {
 
     #[test]
     fn test_create_pro_rata_engine() {
-        let config = OrderBookConfig::cme_style("ES".to_string(), Quantity::from_integer(10).unwrap());
+        let config =
+            OrderBookConfig::cme_style("ES".to_string(), Quantity::from_integer(10).unwrap());
         let engine = create_from_config(config, Arc::new(NoOpEventHandler)).unwrap();
         assert_eq!(engine.get_instrument(), "ES");
     }

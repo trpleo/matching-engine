@@ -123,7 +123,8 @@ impl LmmPriority {
         // Since lmm_allocation_pct is stored as a Quantity (e.g., 0.4 = 400_000_000 raw),
         // we need to multiply and then divide by 10^9
         let lmm_allocation_qty = Quantity::from_raw(
-            (quantity_to_fill.raw_value() as i128 * self.lmm_allocation_pct.raw_value() as i128 / 1_000_000_000) as i64
+            (quantity_to_fill.raw_value() as i128 * self.lmm_allocation_pct.raw_value() as i128
+                / 1_000_000_000) as i64,
         );
         let mut lmm_allocated = Quantity::ZERO;
 
@@ -133,7 +134,8 @@ impl LmmPriority {
 
             for (order_id, order_quantity) in lmm_orders.iter() {
                 let order_raw = order_quantity.raw_value();
-                let allocation_raw = ((order_raw as i128 * lmm_alloc_raw as i128) / lmm_total_raw as i128) as i64;
+                let allocation_raw =
+                    ((order_raw as i128 * lmm_alloc_raw as i128) / lmm_total_raw as i128) as i64;
                 let allocation = Quantity::from_raw(allocation_raw);
 
                 allocations.push((*order_id, allocation));
@@ -159,7 +161,8 @@ impl LmmPriority {
 
             for (order_id, order_quantity, _is_lmm) in all_eligible_orders.iter() {
                 let order_raw = order_quantity.raw_value();
-                let allocation_raw = ((order_raw as i128 * remaining_raw as i128) / total_eligible_raw as i128) as i64;
+                let allocation_raw = ((order_raw as i128 * remaining_raw as i128)
+                    / total_eligible_raw as i128) as i64;
                 let allocation = Quantity::from_raw(allocation_raw);
 
                 prorata_allocs.push((*order_id, allocation));
@@ -359,16 +362,21 @@ mod tests {
         let trades = algo.match_order(buy, &side);
 
         // Verify total filled
-        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        let total_filled: Quantity = trades
+            .iter()
+            .map(|t| t.quantity)
+            .fold(Quantity::ZERO, |a, b| a + b);
         assert_eq!(total_filled, Quantity::from_integer(200).unwrap());
 
         // LMMs should get preferential treatment
-        let mm1_filled: Quantity = trades.iter()
+        let mm1_filled: Quantity = trades
+            .iter()
             .filter(|t| t.maker_order_id == sell_mm1.id)
             .map(|t| t.quantity)
             .fold(Quantity::ZERO, |a, b| a + b);
 
-        let mm2_filled: Quantity = trades.iter()
+        let mm2_filled: Quantity = trades
+            .iter()
             .filter(|t| t.maker_order_id == sell_mm2.id)
             .map(|t| t.quantity)
             .fold(Quantity::ZERO, |a, b| a + b);
@@ -377,7 +385,10 @@ mod tests {
         let lmm_total = mm1_filled + mm2_filled;
 
         // LMMs should collectively get at least 40% of 200 = 80 BTC
-        assert!(lmm_total >= Quantity::from_integer(80).unwrap(), "LMMs should get at least their priority allocation");
+        assert!(
+            lmm_total >= Quantity::from_integer(80).unwrap(),
+            "LMMs should get at least their priority allocation"
+        );
     }
 
     #[test]
@@ -467,7 +478,10 @@ mod tests {
 
         let trades = algo.match_order(buy, &side);
 
-        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        let total_filled: Quantity = trades
+            .iter()
+            .map(|t| t.quantity)
+            .fold(Quantity::ZERO, |a, b| a + b);
         assert_eq!(total_filled, Quantity::from_integer(150).unwrap());
     }
 

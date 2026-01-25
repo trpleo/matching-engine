@@ -36,7 +36,9 @@ fn benchmark_simd_price_matcher(c: &mut Criterion) {
             .collect();
 
         // Test case: buy order that crosses about 25% of prices
-        let buy_price = Price::from_integer(50000 + (*num_prices * 10 / 4)).unwrap().raw_value();
+        let buy_price = Price::from_integer(50000 + (*num_prices * 10 / 4))
+            .unwrap()
+            .raw_value();
 
         // SIMD matcher
         let simd_matcher = create_simd_matcher();
@@ -44,12 +46,7 @@ fn benchmark_simd_price_matcher(c: &mut Criterion) {
             BenchmarkId::new("SIMD", num_prices),
             &(&prices, buy_price),
             |b, (prices, buy_price)| {
-                b.iter(|| {
-                    black_box(simd_matcher.find_crossing_buy_prices(
-                        *buy_price,
-                        prices,
-                    ))
-                });
+                b.iter(|| black_box(simd_matcher.find_crossing_buy_prices(*buy_price, prices)));
             },
         );
 
@@ -59,12 +56,7 @@ fn benchmark_simd_price_matcher(c: &mut Criterion) {
             BenchmarkId::new("Scalar", num_prices),
             &(&prices, buy_price),
             |b, (prices, buy_price)| {
-                b.iter(|| {
-                    black_box(scalar_matcher.find_crossing_buy_prices(
-                        *buy_price,
-                        prices,
-                    ))
-                });
+                b.iter(|| black_box(scalar_matcher.find_crossing_buy_prices(*buy_price, prices)));
             },
         );
     }

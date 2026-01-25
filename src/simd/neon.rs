@@ -214,11 +214,7 @@ mod tests {
     #[test]
     fn test_neon_odd_count() {
         let matcher = NeonMatcher::new();
-        let asks = vec![
-            100_000_000_000i64,
-            110_000_000_000,
-            120_000_000_000,
-        ]; // 3 elements (odd)
+        let asks = vec![100_000_000_000i64, 110_000_000_000, 120_000_000_000]; // 3 elements (odd)
         let buy = 115_000_000_000i64;
 
         let result = matcher.find_crossing_buy_prices(buy, &asks);

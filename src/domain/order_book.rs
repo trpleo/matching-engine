@@ -38,7 +38,8 @@ impl OrderBookLevel {
 
     pub fn add_order(&self, order: Arc<Order>) {
         let quantity_raw = order.get_remaining_quantity().raw_value();
-        self.total_quantity.fetch_add(quantity_raw, Ordering::AcqRel);
+        self.total_quantity
+            .fetch_add(quantity_raw, Ordering::AcqRel);
         self.orders.push(order);
     }
 
@@ -100,11 +101,11 @@ impl OrderBookSide {
                     .iter()
                     .next_back()
                     .map(|entry| entry.value().price)
-            }
+            },
             Side::Sell => {
                 // Lowest ask (first in sorted order)
                 self.levels.iter().next().map(|entry| entry.value().price)
-            }
+            },
         }
     }
 
@@ -202,7 +203,7 @@ impl OrderBookSnapshot {
                     .ok()
                     .and_then(|sum| sum.checked_mul_int(1).ok()) // identity, just to get the value
                     .map(|sum| Price::from_raw(sum.raw_value() / 2))
-            }
+            },
             _ => None,
         };
 
@@ -256,7 +257,10 @@ mod tests {
         ));
 
         level.add_order(order);
-        assert_eq!(level.get_total_quantity(), Quantity::from_integer(1).unwrap());
+        assert_eq!(
+            level.get_total_quantity(),
+            Quantity::from_integer(1).unwrap()
+        );
         assert!(!level.is_empty());
     }
 
@@ -295,13 +299,28 @@ mod tests {
     fn test_order_book_snapshot() {
         let snapshot = OrderBookSnapshot::with_depth(
             "BTC-USD".to_string(),
-            vec![(Price::from_integer(50000).unwrap(), Quantity::from_integer(1).unwrap())],
-            vec![(Price::from_integer(50100).unwrap(), Quantity::from_integer(2).unwrap())],
+            vec![(
+                Price::from_integer(50000).unwrap(),
+                Quantity::from_integer(1).unwrap(),
+            )],
+            vec![(
+                Price::from_integer(50100).unwrap(),
+                Quantity::from_integer(2).unwrap(),
+            )],
         );
 
-        assert_eq!(snapshot.best_bid(), Some(Price::from_integer(50000).unwrap()));
-        assert_eq!(snapshot.best_ask(), Some(Price::from_integer(50100).unwrap()));
+        assert_eq!(
+            snapshot.best_bid(),
+            Some(Price::from_integer(50000).unwrap())
+        );
+        assert_eq!(
+            snapshot.best_ask(),
+            Some(Price::from_integer(50100).unwrap())
+        );
         assert_eq!(snapshot.spread, Some(Price::from_integer(100).unwrap()));
-        assert_eq!(snapshot.mid_price, Some(Price::from_integer(50050).unwrap()));
+        assert_eq!(
+            snapshot.mid_price,
+            Some(Price::from_integer(50050).unwrap())
+        );
     }
 }

@@ -112,7 +112,8 @@ impl ProRataTobFifo {
 
         for (order_id, order_quantity) in eligible_orders.iter() {
             let order_raw = order_quantity.raw_value();
-            let allocation_raw = ((order_raw as i128 * remaining_raw as i128) / eligible_raw as i128) as i64;
+            let allocation_raw =
+                ((order_raw as i128 * remaining_raw as i128) / eligible_raw as i128) as i64;
             let allocation = Quantity::from_raw(allocation_raw);
 
             allocations.push((*order_id, allocation));
@@ -286,7 +287,10 @@ mod tests {
         let trades = algo.match_order(buy.clone(), &side);
 
         // Verify total filled
-        let total_filled: Quantity = trades.iter().map(|t| t.quantity).fold(Quantity::ZERO, |a, b| a + b);
+        let total_filled: Quantity = trades
+            .iter()
+            .map(|t| t.quantity)
+            .fold(Quantity::ZERO, |a, b| a + b);
         assert_eq!(total_filled, Quantity::from_integer(150).unwrap());
 
         // Find trade with first order
@@ -295,7 +299,11 @@ mod tests {
 
         // First order should be filled completely (10 BTC)
         let first_filled = first_trade.unwrap().quantity;
-        assert_eq!(first_filled, Quantity::from_integer(10).unwrap(), "First order should get full 10 BTC via FIFO");
+        assert_eq!(
+            first_filled,
+            Quantity::from_integer(10).unwrap(),
+            "First order should get full 10 BTC via FIFO"
+        );
 
         // Verify incoming order is fully filled
         assert_eq!(buy.get_remaining_quantity(), Quantity::ZERO);
@@ -349,7 +357,10 @@ mod tests {
         assert_eq!(trades[0].quantity, Quantity::from_integer(50).unwrap());
 
         // Second order should not be touched
-        assert_eq!(sell2.get_remaining_quantity(), Quantity::from_integer(100).unwrap());
+        assert_eq!(
+            sell2.get_remaining_quantity(),
+            Quantity::from_integer(100).unwrap()
+        );
     }
 
     #[test]
@@ -407,16 +418,25 @@ mod tests {
         // First order should get filled (FIFO): 10 BTC
         let first_trade = trades.iter().find(|t| t.maker_order_id == sell1.id);
         assert!(first_trade.is_some());
-        assert_eq!(first_trade.unwrap().quantity, Quantity::from_integer(10).unwrap());
+        assert_eq!(
+            first_trade.unwrap().quantity,
+            Quantity::from_integer(10).unwrap()
+        );
 
         // sell2 should NOT participate (below minimum)
         let second_trade = trades.iter().find(|t| t.maker_order_id == sell2.id);
-        assert!(second_trade.is_none(), "Order below minimum should not participate in pro-rata");
+        assert!(
+            second_trade.is_none(),
+            "Order below minimum should not participate in pro-rata"
+        );
 
         // sell3 should get the remaining (pro-rata, but it's the only eligible one)
         let third_trade = trades.iter().find(|t| t.maker_order_id == sell3.id);
         assert!(third_trade.is_some());
-        assert_eq!(third_trade.unwrap().quantity, Quantity::from_integer(90).unwrap());
+        assert_eq!(
+            third_trade.unwrap().quantity,
+            Quantity::from_integer(90).unwrap()
+        );
     }
 
     #[test]

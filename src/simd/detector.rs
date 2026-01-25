@@ -119,11 +119,7 @@ impl CpuCapabilities {
 
 impl std::fmt::Display for CpuCapabilities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "CPU: {} with {}",
-            self.architecture, self.simd_level
-        )
+        write!(f, "CPU: {} with {}", self.architecture, self.simd_level)
     }
 }
 
@@ -150,19 +146,19 @@ pub fn create_simd_matcher() -> Arc<dyn SimdMatcher> {
         SimdLevel::Avx512 => {
             use super::avx512::Avx512Matcher;
             Arc::new(Avx512Matcher::new())
-        }
+        },
 
         #[cfg(target_arch = "x86_64")]
         SimdLevel::Avx2 => {
             use super::avx2::Avx2Matcher;
             Arc::new(Avx2Matcher::new())
-        }
+        },
 
         #[cfg(target_arch = "aarch64")]
         SimdLevel::Neon => {
             use super::neon::NeonMatcher;
             Arc::new(NeonMatcher::new())
-        }
+        },
 
         _ => Arc::new(ScalarMatcher::new()),
     }

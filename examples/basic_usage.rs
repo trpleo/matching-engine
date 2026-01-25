@@ -2,8 +2,8 @@
 // Basic Usage Example
 // ============================================================================
 
-use matching_engine::prelude::*;
 use matching_engine::numeric::{Price, Quantity};
+use matching_engine::prelude::*;
 use std::sync::Arc;
 
 fn main() {

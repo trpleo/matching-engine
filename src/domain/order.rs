@@ -136,7 +136,7 @@ pub mod state {
 
                 (OrderState::Accepted, OrderStateTransition::PartialFill) => {
                     Ok(OrderState::PartiallyFilled)
-                }
+                },
                 (OrderState::Accepted, OrderStateTransition::Fill) => Ok(OrderState::Filled),
                 (OrderState::Accepted, OrderStateTransition::Cancel) => Ok(OrderState::Cancelled),
                 (OrderState::Accepted, OrderStateTransition::Expire) => Ok(OrderState::Expired),
@@ -144,10 +144,10 @@ pub mod state {
                 (OrderState::PartiallyFilled, OrderStateTransition::Fill) => Ok(OrderState::Filled),
                 (OrderState::PartiallyFilled, OrderStateTransition::Cancel) => {
                     Ok(OrderState::Cancelled)
-                }
+                },
                 (OrderState::PartiallyFilled, OrderStateTransition::Expire) => {
                     Ok(OrderState::Expired)
-                }
+                },
 
                 _ => Err(format!(
                     "Invalid transition from {:?} via {:?}",
@@ -227,8 +227,15 @@ impl Order {
         quantity: Quantity,
         time_in_force: TimeInForce,
     ) -> Self {
-        let mut order =
-            Self::new(user_id, instrument, side, order_type, price, quantity, time_in_force);
+        let mut order = Self::new(
+            user_id,
+            instrument,
+            side,
+            order_type,
+            price,
+            quantity,
+            time_in_force,
+        );
         order.is_hidden = true;
         order
     }
@@ -244,8 +251,15 @@ impl Order {
         display_quantity: Quantity,
         time_in_force: TimeInForce,
     ) -> Self {
-        let mut order =
-            Self::new(user_id, instrument, side, order_type, price, quantity, time_in_force);
+        let mut order = Self::new(
+            user_id,
+            instrument,
+            side,
+            order_type,
+            price,
+            quantity,
+            time_in_force,
+        );
         order.display_quantity = Some(display_quantity);
         order
     }
@@ -411,7 +425,10 @@ mod tests {
             TimeInForce::GoodTillCancel,
         );
 
-        assert_eq!(order.get_remaining_quantity(), Quantity::from_integer(1).unwrap());
+        assert_eq!(
+            order.get_remaining_quantity(),
+            Quantity::from_integer(1).unwrap()
+        );
         assert_eq!(order.get_filled_quantity(), Quantity::ZERO);
         assert_eq!(order.get_state(), state::OrderState::Pending);
     }
@@ -429,8 +446,14 @@ mod tests {
         );
 
         assert!(order.try_fill(Quantity::from_integer(3).unwrap()));
-        assert_eq!(order.get_filled_quantity(), Quantity::from_integer(3).unwrap());
-        assert_eq!(order.get_remaining_quantity(), Quantity::from_integer(7).unwrap());
+        assert_eq!(
+            order.get_filled_quantity(),
+            Quantity::from_integer(3).unwrap()
+        );
+        assert_eq!(
+            order.get_remaining_quantity(),
+            Quantity::from_integer(7).unwrap()
+        );
         assert_eq!(order.get_state(), state::OrderState::PartiallyFilled);
 
         assert!(order.try_fill(Quantity::from_integer(7).unwrap()));

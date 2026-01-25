@@ -64,8 +64,8 @@ pub mod prelude {
         OrderBookType, OrderId, OrderType, Side, TimeInForce, Trade,
     };
     pub use crate::engine::{
-        create_from_config, LmmPriority, MatchingEngine, MatchingEngineBuilder,
-        PriceTimePriority, ProRata, ProRataTobFifo, ThresholdProRata,
+        create_from_config, LmmPriority, MatchingEngine, MatchingEngineBuilder, PriceTimePriority,
+        ProRata, ProRataTobFifo, ThresholdProRata,
     };
     pub use crate::interfaces::{
         EventHandler, LoggingEventHandler, MatchingAlgorithm, MatchingConfig, NoOpEventHandler,
