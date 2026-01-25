@@ -3,8 +3,6 @@
 // SIMD acceleration using ARM NEON instructions (128-bit, 2x i64)
 // ============================================================================
 
-#![cfg(target_arch = "aarch64")]
-
 use super::traits::SimdMatcher;
 
 /// ARM NEON implementation of price matching.

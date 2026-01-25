@@ -241,6 +241,7 @@ impl Order {
     }
 
     /// Create a new iceberg order (partially visible)
+    #[allow(clippy::too_many_arguments)]
     pub fn new_iceberg(
         user_id: String,
         instrument: String,

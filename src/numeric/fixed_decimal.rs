@@ -257,12 +257,6 @@ impl<const D: u8> FixedDecimal<D> {
     // Comparison
     // ========================================================================
 
-    /// Compare two values.
-    #[inline]
-    pub fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
-    }
-
     /// Returns the minimum of two values.
     #[inline]
     pub fn min(self, other: Self) -> Self {
@@ -299,7 +293,7 @@ impl<const D: u8> Eq for FixedDecimal<D> {}
 impl<const D: u8> PartialOrd for FixedDecimal<D> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.0.cmp(&other.0))
+        Some(self.cmp(other))
     }
 }
 
