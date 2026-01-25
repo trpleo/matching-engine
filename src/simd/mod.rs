@@ -50,7 +50,3 @@ pub use avx2::Avx2Matcher;
 #[cfg(target_arch = "x86_64")]
 pub use avx512::Avx512Matcher;
 
-// Keep old export for backwards compatibility during migration
-// TODO: Remove after migration is complete
-#[deprecated(since = "0.2.0", note = "Use create_simd_matcher() instead")]
-pub use scalar::ScalarMatcher as SimdPriceMatcher;

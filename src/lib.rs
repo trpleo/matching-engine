@@ -71,7 +71,7 @@ pub mod prelude {
         EventHandler, LoggingEventHandler, MatchingAlgorithm, MatchingConfig, NoOpEventHandler,
         OrderEvent,
     };
-    pub use crate::simd::SimdPriceMatcher;
+    pub use crate::simd::{create_simd_matcher, SimdMatcher};
 }
 
 #[cfg(test)]

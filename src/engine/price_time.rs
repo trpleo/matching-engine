@@ -35,10 +35,11 @@ impl MatchingAlgorithm for PriceTimePriority {
     fn match_order(&self, incoming_order: Arc<Order>, opposite_side: &OrderBookSide) -> Vec<Trade> {
         let mut trades = Vec::new();
 
-        // TODO: SIMD optimization will be re-implemented in Phase 4 with FixedDecimal
-        // The old f64-based SIMD code has been removed as part of the architecture refactoring.
-        // The new implementation will use i64-based SIMD operations via SimdMatcher trait.
-        let _ = self.use_simd; // Silence unused warning until Phase 4
+        // TODO: Integrate SIMD into matching algorithm
+        // The SIMD infrastructure is complete (SimdMatcher trait, i64-based operations).
+        // Integration into this iterative matching loop is pending - currently processes
+        // one level at a time which doesn't benefit from SIMD vectorization.
+        let _ = self.use_simd;
 
         // Match orders in FIFO order
         while incoming_order.get_remaining_quantity() > Quantity::ZERO {
