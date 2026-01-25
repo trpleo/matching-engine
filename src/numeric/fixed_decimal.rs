@@ -187,7 +187,7 @@ impl<const D: u8> FixedDecimal<D> {
     /// Returns `Overflow` or `Underflow` if the result is out of range.
     #[inline]
     pub fn checked_add(self, rhs: Self) -> NumericResult<Self> {
-        self.0.checked_add(rhs.0).map(Self).ok_or_else(|| {
+        self.0.checked_add(rhs.0).map(Self).ok_or({
             if rhs.0 > 0 {
                 NumericError::Overflow
             } else {
@@ -202,7 +202,7 @@ impl<const D: u8> FixedDecimal<D> {
     /// Returns `Overflow` or `Underflow` if the result is out of range.
     #[inline]
     pub fn checked_sub(self, rhs: Self) -> NumericResult<Self> {
-        self.0.checked_sub(rhs.0).map(Self).ok_or_else(|| {
+        self.0.checked_sub(rhs.0).map(Self).ok_or({
             if rhs.0 < 0 {
                 NumericError::Overflow
             } else {

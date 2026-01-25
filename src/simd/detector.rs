@@ -77,7 +77,7 @@ impl SimdLevel {
         #[cfg(target_arch = "aarch64")]
         {
             // NEON is always available on aarch64
-            return SimdLevel::Neon;
+            SimdLevel::Neon
         }
 
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
