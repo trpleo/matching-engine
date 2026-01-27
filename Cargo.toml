@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Istvan Papp <istvan.l.papp@gmail.com>"]
 description = "High-performance lock-free matching engine with SIMD optimizations"
-license = "MIT"
+license = "PolyForm-Noncommercial-1.0.0"
 
 [dependencies]
 # Concurrency and lock-free data structures
