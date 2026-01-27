@@ -165,7 +165,10 @@ impl NumaTopology {
                 let cpu_ids = parse_cpu_list(cpulist.trim());
                 total_cpus += cpu_ids.len();
 
-                nodes.push(NumaNode { id: node_id, cpu_ids });
+                nodes.push(NumaNode {
+                    id: node_id,
+                    cpu_ids,
+                });
             }
         }
 
