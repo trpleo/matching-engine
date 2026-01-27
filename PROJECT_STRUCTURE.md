@@ -161,7 +161,12 @@ matching-engine/
 
 **Files**:
 
-- `numa_detection.rs`: NUMA topology detection for performance optimization
+- `numa_detection.rs`: NUMA topology detection and CPU affinity (requires `numa` feature)
+  - `NumaTopology`: Detects CPU topology and NUMA nodes
+  - `NumaNode`: Represents a NUMA node with its cores
+  - `pin_current_thread_to_core()`: Pins current thread to a specific CPU core
+  - `pin_current_thread_to_node()`: Pins current thread to any core in a NUMA node
+  - `get_available_cores()`: Returns list of available CPU cores
 
 ## Key Design Patterns
 
@@ -279,6 +284,8 @@ cargo build --release
 - `serde`: Serialization support (serde + serde_json)
 - `async`: Tokio integration
 - `logging`: Tracing support
+- `numa`: NUMA topology detection and CPU affinity (Linux only, uses `core_affinity` crate)
+- `avx512`: AVX-512 SIMD optimizations (requires nightly Rust)
 
 ## Dependencies
 

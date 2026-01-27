@@ -518,6 +518,27 @@ These configuration options affect performance:
 - `max_depth` - Higher values use more memory
 - `minimum_quantity` filters - Fewer orders to process
 
+### NUMA and CPU Affinity (Linux)
+
+For latency-critical deployments, enable the `numa` feature and pin threads to specific cores:
+
+```rust
+use matching_engine::utils::{NumaTopology, pin_current_thread_to_core};
+
+// Detect topology
+let topology = NumaTopology::detect();
+println!("Detected {} cores across {} NUMA nodes",
+    topology.total_cores(), topology.node_count());
+
+// Pin matching engine thread to core 0
+pin_current_thread_to_core(0).expect("Failed to pin thread");
+
+// Or pin to the first NUMA node
+pin_current_thread_to_node(&topology, 0).expect("Failed to pin to NUMA node");
+```
+
+**Note:** CPU pinning requires the `numa` feature and only works on Linux.
+
 ---
 
 ## Summary Tables

@@ -1,6 +1,6 @@
 # Matching Engine
 
-A high-performance, lock-free order matching engine for financial markets with pluggable matching algorithms and SIMD optimizations.
+A high-performance, lock-free order matching engine for financial markets with pluggable matching algorithms, NUMA and SIMD optimizations.
 
 ## Features
 
@@ -239,6 +239,28 @@ cargo test --all-features
 - `serde`: Enable serialization support (serde + serde_json)
 - `async`: Enable async runtime integration (Tokio)
 - `logging`: Enable tracing/logging support
+- `numa`: Enable NUMA topology detection and CPU affinity (Linux only, uses `core_affinity` crate)
+- `avx512`: Enable AVX-512 SIMD optimizations (requires nightly Rust)
+
+### NUMA Support
+
+When the `numa` feature is enabled, you can detect CPU topology and pin threads to specific cores for optimal performance:
+
+```rust
+use matching_engine::utils::{NumaTopology, pin_current_thread_to_core};
+
+// Detect NUMA topology
+let topology = NumaTopology::detect();
+println!("CPU cores: {}", topology.total_cores());
+println!("NUMA nodes: {}", topology.node_count());
+
+// Pin current thread to core 0 for consistent latency
+if let Err(e) = pin_current_thread_to_core(0) {
+    eprintln!("Failed to pin thread: {}", e);
+}
+```
+
+**Note:** CPU pinning is only supported on Linux. On other platforms, the functions will return errors gracefully.
 
 See [CONFIGURATION.md](CONFIGURATION.md) for detailed configuration options.
 
@@ -268,7 +290,9 @@ Pending → Accepted → PartiallyFilled → Filled
 
 ## License
 
-MIT
+PolyForm Noncommercial 1.0.0
+
+This software is free for non-commercial use (including education and research). For commercial use, please contact the author for licensing.
 
 ## Author
 
