@@ -6,7 +6,7 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 ### Prerequisites
 
-- Rust 1.83.0 or later (see `rust-toolchain.toml`)
+- Rust 1.93.0 or later (see `rust-toolchain.toml`)
 - Cargo
 - Git
 - Python 3.x (for pre-commit hooks)

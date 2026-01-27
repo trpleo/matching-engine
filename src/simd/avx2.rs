@@ -3,8 +3,6 @@
 // SIMD acceleration using AVX2 instructions (256-bit, 4x i64)
 // ============================================================================
 
-#![cfg(target_arch = "x86_64")]
-
 use super::traits::SimdMatcher;
 
 /// AVX2 implementation of price matching.

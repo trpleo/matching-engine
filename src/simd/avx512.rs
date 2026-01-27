@@ -1,9 +1,10 @@
 // ============================================================================
 // x86_64 AVX-512 Implementation
 // SIMD acceleration using AVX-512 instructions (512-bit, 8x i64)
+//
+// NOTE: AVX-512 intrinsics require nightly Rust.
+// This module is only compiled when the `avx512` feature is enabled.
 // ============================================================================
-
-#![cfg(target_arch = "x86_64")]
 
 use super::traits::SimdMatcher;
 

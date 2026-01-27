@@ -31,7 +31,8 @@ mod neon;
 #[cfg(target_arch = "x86_64")]
 mod avx2;
 
-#[cfg(target_arch = "x86_64")]
+// AVX-512 requires nightly Rust due to unstable intrinsics
+#[cfg(all(target_arch = "x86_64", feature = "avx512"))]
 mod avx512;
 
 // Public exports
@@ -47,5 +48,5 @@ pub use neon::NeonMatcher;
 #[cfg(target_arch = "x86_64")]
 pub use avx2::Avx2Matcher;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", feature = "avx512"))]
 pub use avx512::Avx512Matcher;

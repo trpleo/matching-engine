@@ -2,7 +2,7 @@
 name = "matching-engine"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83.0"
+rust-version = "1.93.0"
 authors = ["Istvan Papp <istvan.l.papp@gmail.com>"]
 description = "High-performance lock-free matching engine with SIMD optimizations"
 license = "PolyForm-Noncommercial-1.0.0"
@@ -41,6 +41,9 @@ tokio = { version = "1.49.0", features = ["full"], optional = true }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", optional = true }
 
+# CPU affinity for NUMA optimization (optional, Linux-focused)
+core_affinity = { version = "0.8", optional = true }
+
 [dev-dependencies]
 criterion = { version = "0.8.1", features = ["html_reports"] }
 proptest = "1.9.0"
@@ -51,6 +54,10 @@ default = []
 serde = ["dep:serde", "dep:serde_json", "uuid/serde", "chrono/serde"]
 async = ["dep:tokio"]
 logging = ["dep:tracing-subscriber"]
+# AVX-512 support (requires nightly Rust due to unstable intrinsics)
+avx512 = []
+# NUMA topology detection and CPU affinity (Linux only)
+numa = ["dep:core_affinity"]
 
 [[bench]]
 name = "matching_benchmark"
