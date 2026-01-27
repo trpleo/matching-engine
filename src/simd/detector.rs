@@ -73,7 +73,7 @@ impl SimdLevel {
             if is_x86_feature_detected!("avx2") {
                 return SimdLevel::Avx2;
             }
-            SimdLevel::None;
+            SimdLevel::None
         }
 
         #[cfg(target_arch = "aarch64")]
