@@ -1,0 +1,12 @@
+# CODEOWNERS - defines who owns what code
+# These owners will be requested for review when someone opens a PR
+# that modifies code they own.
+#
+# Order matters: later patterns take precedence over earlier ones.
+
+# Default owner for everything
+* @istvanpapp
+
+# Specific ownership (add more as the project grows)
+# /src/orderbook/ @trading-team
+# /docs/ @docs-team

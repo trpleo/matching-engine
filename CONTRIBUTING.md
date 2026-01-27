@@ -6,25 +6,31 @@ Thank you for your interest in contributing! This document provides guidelines f
 
 ### Prerequisites
 
-- Rust 1.70+ (stable)
+- Rust 1.83.0 or later (see `rust-toolchain.toml`)
 - Cargo
 - Git
+- Python 3.x (for pre-commit hooks)
 
 ### Initial Setup
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/trpleo/matching-engine.git
 cd matching-engine
 
-# Install development tools
-make install-tools
+# Install pre-commit hooks
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type commit-msg
 
 # Build the project
-make build
+cargo build --all-features
 
 # Run tests
-make test
+cargo test --all-features
+
+# Verify setup
+cargo clippy --all-features
 ```
 
 ## Code Quality
@@ -203,14 +209,35 @@ src/
 - **engine/**: Implement business logic using traits
 - **simd/**: Platform-specific optimizations
 
+## Branch Naming Convention
+
+Create branches following this pattern:
+
+- `feature/description` - New features
+- `bugfix/description` - Bug fixes
+- `hotfix/description` - Urgent production fixes
+- `release/x.y.z` - Release preparation
+
+**Examples:**
+- `feature/add-market-orders`
+- `bugfix/fix-price-overflow`
+- `hotfix/security-patch`
+- `release/1.0.0`
+
 ## Pull Request Process
 
 1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Format** and **lint** your code (`make pre-commit`)
+2. **Create** a feature branch from `develop` (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes using [Conventional Commits](#commit-message-guidelines)
+4. **Ensure all checks pass:**
+   ```bash
+   cargo fmt --check
+   cargo clippy --all-features -- -D warnings
+   cargo test --all-features
+   ```
 5. **Push** to the branch (`git push origin feature/amazing-feature`)
-6. **Open** a Pull Request
+6. **Open** a Pull Request against `develop`
+7. **Fill out** the PR template completely
 
 ### PR Requirements
 
@@ -300,4 +327,6 @@ back to the queue.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+This project is licensed under the PolyForm Noncommercial License 1.0.0. By contributing, you agree that your contributions will be licensed under the same terms.
+
+**Note:** Commercial use requires a separate license agreement. See [LICENSE](LICENSE) for details.

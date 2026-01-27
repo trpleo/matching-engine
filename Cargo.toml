@@ -2,9 +2,14 @@
 name = "matching-engine"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.83.0"
 authors = ["Istvan Papp <istvan.l.papp@gmail.com>"]
 description = "High-performance lock-free matching engine with SIMD optimizations"
 license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/trpleo/matching-engine"
+readme = "README.md"
+keywords = ["matching-engine", "orderbook", "trading", "lock-free", "simd"]
+categories = ["algorithms", "concurrency"]
 
 [dependencies]
 # Concurrency and lock-free data structures
