@@ -65,6 +65,8 @@ impl SimdLevel {
     pub fn detect() -> Self {
         #[cfg(target_arch = "x86_64")]
         {
+            // AVX-512 detection only when feature is enabled (requires nightly)
+            #[cfg(feature = "avx512")]
             if is_x86_feature_detected!("avx512f") {
                 return SimdLevel::Avx512;
             }
@@ -142,7 +144,7 @@ pub fn create_simd_matcher() -> Arc<dyn SimdMatcher> {
     let caps = CpuCapabilities::detect();
 
     match caps.simd_level {
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(all(target_arch = "x86_64", feature = "avx512"))]
         SimdLevel::Avx512 => {
             use super::avx512::Avx512Matcher;
             Arc::new(Avx512Matcher::new())

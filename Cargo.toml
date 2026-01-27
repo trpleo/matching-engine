@@ -51,6 +51,8 @@ default = []
 serde = ["dep:serde", "dep:serde_json", "uuid/serde", "chrono/serde"]
 async = ["dep:tokio"]
 logging = ["dep:tracing-subscriber"]
+# AVX-512 support (requires nightly Rust due to unstable intrinsics)
+avx512 = []
 
 [[bench]]
 name = "matching_benchmark"

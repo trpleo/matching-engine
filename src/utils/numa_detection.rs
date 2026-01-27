@@ -49,7 +49,7 @@
 ///
 #[cfg(target_os = "linux")]
 pub fn check_numa() {
-    use std::{fs, thread};
+    use std::fs;
 
     // Check how many NUMA nodes exist
     let numa_dirs = fs::read_dir("/sys/devices/system/node")
