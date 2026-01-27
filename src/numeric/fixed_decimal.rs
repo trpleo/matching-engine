@@ -9,6 +9,9 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, Neg, Sub};
 
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 /// Fixed-point decimal number with compile-time precision.
 ///
 /// Internally stores `value × 10^DECIMALS` as an i64.
@@ -479,6 +482,75 @@ impl<const D: u8> std::str::FromStr for FixedDecimal<D> {
         }
 
         Ok(result)
+    }
+}
+
+// ============================================================================
+// Serde Support (feature-gated)
+// ============================================================================
+
+#[cfg(feature = "serde")]
+impl<const D: u8> Serialize for FixedDecimal<D> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Serialize as string to preserve precision and readability
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de, const D: u8> Deserialize<'de> for FixedDecimal<D> {
+    fn deserialize<De>(deserializer: De) -> Result<Self, De::Error>
+    where
+        De: Deserializer<'de>,
+    {
+        // Support both string and numeric formats
+        struct FixedDecimalVisitor<const D: u8>;
+
+        impl<const D: u8> serde::de::Visitor<'_> for FixedDecimalVisitor<D> {
+            type Value = FixedDecimal<D>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a decimal number as string or number")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                value.parse().map_err(serde::de::Error::custom)
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                FixedDecimal::from_integer(value).map_err(serde::de::Error::custom)
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if value > i64::MAX as u64 {
+                    return Err(serde::de::Error::custom("value too large"));
+                }
+                FixedDecimal::from_integer(value as i64).map_err(serde::de::Error::custom)
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                // Convert float to string to preserve precision during parsing
+                let s = format!("{:.width$}", value, width = D as usize);
+                s.parse().map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_any(FixedDecimalVisitor::<D>)
     }
 }
 

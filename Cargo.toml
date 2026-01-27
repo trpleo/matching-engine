@@ -2,7 +2,7 @@
 name = "matching-engine"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83.0"
+rust-version = "1.86.0"
 authors = ["Istvan Papp <istvan.l.papp@gmail.com>"]
 description = "High-performance lock-free matching engine with SIMD optimizations"
 license = "PolyForm-Noncommercial-1.0.0"
