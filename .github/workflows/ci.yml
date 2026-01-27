@@ -133,20 +133,9 @@ jobs:
           files: lcov.info
           fail_ci_if_error: false
 
-  # Security audit
-  audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    permissions:
-      checks: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   # Dependency checks with cargo-deny
+  # Note: cargo-deny includes security advisory checks (see deny.toml [advisories] section)
+  # This replaces the separate rustsec/audit-check which had reliability issues
   deny:
     name: Cargo Deny
     runs-on: ubuntu-latest
