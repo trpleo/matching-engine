@@ -25,8 +25,9 @@ matching-engine/
 │   ├── domain/          # Domain models (Order, Trade, OrderBook, Config)
 │   ├── interfaces/      # Trait definitions (MatchingAlgorithm, EventHandler)
 │   ├── engine/          # Business logic (MatchingEngine, algorithms)
-│   ├── simd/            # SIMD optimizations
-│   └── utils/           # Utilities (NUMA detection)
+│   └── platform/        # Hardware-specific optimizations
+│       ├── simd/        # SIMD optimizations (AVX2, AVX-512, NEON)
+│       └── numa.rs      # NUMA topology and CPU affinity
 ├── examples/            # Usage examples
 ├── benches/             # Performance benchmarks
 └── docs/specs/          # Future feature specifications
@@ -182,19 +183,7 @@ This protects small traders while rewarding large liquidity providers.
 
 ## Performance
 
-Benchmarks on Apple M1 (2021):
-
-| Operation | Latency (avg) | Throughput |
-|-----------|--------------|------------|
-| Order submission (no match) | 200 ns | 5M orders/sec |
-| Order matching (1 trade) | 500 ns | 2M orders/sec |
-| Order matching (SIMD) | 350 ns | 2.8M orders/sec |
-| Pro-rata matching | 1.2 µs | 800K orders/sec |
-| Order book snapshot | 150 ns | 6.6M/sec |
-
-### FixedDecimal Benchmarks on Apple M3 (2023)
-
-After migrating from `rust_decimal::Decimal` to `FixedDecimal<9>` (i64-based arithmetic):
+Benchmarks were done on Apple M3 (2023).
 
 | Operation | Latency |
 |-----------|---------|
@@ -247,7 +236,7 @@ cargo test --all-features
 When the `numa` feature is enabled, you can detect CPU topology and pin threads to specific cores for optimal performance:
 
 ```rust
-use matching_engine::utils::{NumaTopology, pin_current_thread_to_core};
+use matching_engine::platform::{NumaTopology, pin_current_thread_to_core};
 
 // Detect NUMA topology
 let topology = NumaTopology::detect();

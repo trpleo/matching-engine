@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_neon_consistency_with_scalar() {
-        use crate::simd::scalar::ScalarMatcher;
+        use crate::platform::simd::ScalarMatcher;
 
         let neon = NeonMatcher::new();
         let scalar = ScalarMatcher::new();

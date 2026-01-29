@@ -44,13 +44,17 @@ matching-engine/
 │   │   ├── lmm_priority.rs     # LMM Priority (Lead Market Maker)
 │   │   └── threshold_pro_rata.rs   # Threshold Pro-Rata algorithm
 │   │
-│   ├── simd/                   # Performance Optimizations
-│   │   ├── mod.rs
-│   │   └── price_matcher.rs    # SIMD-accelerated price matching
-│   │
-│   └── utils/                  # Utilities
-│       ├── mod.rs
-│       └── numa_detection.rs   # NUMA topology detection
+│   └── platform/               # Hardware-specific Optimizations
+│       ├── mod.rs              # Re-exports SIMD and NUMA types
+│       ├── numa.rs             # NUMA topology and CPU affinity
+│       └── simd/               # SIMD price matching
+│           ├── mod.rs          # Architecture-conditional compilation
+│           ├── traits.rs       # SimdMatcher trait definition
+│           ├── detector.rs     # CPU capability detection
+│           ├── scalar.rs       # Scalar fallback implementation
+│           ├── avx2.rs         # x86_64 AVX2 (256-bit)
+│           ├── avx512.rs       # x86_64 AVX-512 (512-bit, nightly)
+│           └── neon.rs         # aarch64 NEON (128-bit)
 │
 ├── examples/                   # Usage Examples
 │   └── basic_usage.rs          # Basic matching engine usage
@@ -144,29 +148,34 @@ matching-engine/
   - Orders above threshold get pro-rata allocation
   - Protects smaller retail traders
 
-### SIMD (`src/simd/`)
+### Platform (`src/platform/`)
 
-**Purpose**: Platform-specific optimizations
-
-**Files**:
-
-- `price_matcher.rs`: SIMD-accelerated price matching
-  - AVX2 implementation for x86_64
-  - 4x parallel price comparisons
-  - Scalar fallback for other platforms
-
-### Utils (`src/utils/`)
-
-**Purpose**: Utility functions and helpers
+**Purpose**: Hardware-specific optimizations for performance-critical operations
 
 **Files**:
 
-- `numa_detection.rs`: NUMA topology detection and CPU affinity (requires `numa` feature)
+- `mod.rs`: Re-exports SIMD and NUMA types for convenient access
+- `numa.rs`: NUMA topology detection and CPU affinity (requires `numa` feature)
   - `NumaTopology`: Detects CPU topology and NUMA nodes
   - `NumaNode`: Represents a NUMA node with its cores
   - `pin_current_thread_to_core()`: Pins current thread to a specific CPU core
   - `pin_current_thread_to_node()`: Pins current thread to any core in a NUMA node
   - `get_available_cores()`: Returns list of available CPU cores
+
+### Platform SIMD (`src/platform/simd/`)
+
+**Purpose**: Vectorized price matching for high-throughput order processing
+
+**Files**:
+
+- `traits.rs`: `SimdMatcher` trait defining the SIMD interface
+- `detector.rs`: CPU capability detection and matcher factory
+  - `CpuCapabilities`: Detects architecture and SIMD support
+  - `create_simd_matcher()`: Factory for optimal matcher
+- `scalar.rs`: Fallback implementation (works on all platforms)
+- `avx2.rs`: x86_64 AVX2 acceleration (256-bit, 4x i64 parallel)
+- `avx512.rs`: x86_64 AVX-512 acceleration (512-bit, 8x i64 parallel, requires nightly)
+- `neon.rs`: aarch64 NEON acceleration (128-bit, 2x i64 parallel)
 
 ## Key Design Patterns
 

@@ -53,8 +53,19 @@ pub mod domain;
 pub mod engine;
 pub mod interfaces;
 pub mod numeric;
-pub mod simd;
-pub mod utils;
+pub mod platform;
+
+// Backward compatibility re-exports
+// These allow existing code using `matching_engine::simd::*` or `matching_engine::utils::*` to continue working
+pub mod simd {
+    pub use crate::platform::simd::*;
+}
+pub mod utils {
+    pub use crate::platform::{
+        get_available_cores, pin_current_thread_to_core, pin_current_thread_to_node, NumaNode,
+        NumaTopology,
+    };
+}
 
 // Re-exports for convenience
 pub mod prelude {
@@ -71,7 +82,7 @@ pub mod prelude {
         EventHandler, LoggingEventHandler, MatchingAlgorithm, MatchingConfig, NoOpEventHandler,
         OrderEvent,
     };
-    pub use crate::simd::{create_simd_matcher, SimdMatcher};
+    pub use crate::platform::{create_simd_matcher, SimdMatcher};
 }
 
 #[cfg(test)]

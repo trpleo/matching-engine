@@ -9,7 +9,7 @@
 //
 // Usage:
 // ```ignore
-// use matching_engine::simd::{create_simd_matcher, SimdMatcher, CpuCapabilities};
+// use matching_engine::platform::simd::{create_simd_matcher, SimdMatcher, CpuCapabilities};
 //
 // // Detect CPU at startup
 // let caps = CpuCapabilities::detect();
