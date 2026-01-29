@@ -523,7 +523,7 @@ These configuration options affect performance:
 For latency-critical deployments, enable the `numa` feature and pin threads to specific cores:
 
 ```rust
-use matching_engine::utils::{NumaTopology, pin_current_thread_to_core};
+use matching_engine::platform::{NumaTopology, pin_current_thread_to_core, pin_current_thread_to_node};
 
 // Detect topology
 let topology = NumaTopology::detect();
