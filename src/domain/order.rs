@@ -49,8 +49,12 @@ pub enum Side {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum OrderType {
+    /// Specifies a maximum price to buy or minimum price to sell.
+    /// Defined by the Side (either Buy or Sell).
     Limit,
+    /// Executes immediately at the best current price.
     Market,
+    /// A stop order that, once triggered, becomes a limit order
     StopLimit { trigger_price: Price },
 }
 
